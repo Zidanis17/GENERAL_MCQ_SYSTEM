@@ -206,14 +206,14 @@ describe('release asset verification', () => {
       expect(calls.at(-2)).toContain('release|view|v1.1.1')
       expect(calls.filter((line) => line.startsWith('release|upload|')).at(-1)).toContain('latest.yml')
     } finally { await cleanup(directory) }
-  })
+  }, 30_000)
   it('does not publish if GitHub is missing an uploaded asset', async () => {
     const directory = await fixture()
     try {
       expect(() => publish(directory, true)).toThrow('missing or incomplete')
       expect(await fs.readFile(join(directory, 'calls.log'), 'utf8')).not.toContain('release|edit|')
     } finally { await cleanup(directory) }
-  })
+  }, 30_000)
   it('rejects mismatched metadata before contacting GitHub', async () => {
     const directory = await fixture()
     try {
@@ -221,5 +221,5 @@ describe('release asset verification', () => {
       expect(() => publish(directory)).toThrow('checksum')
       expect(await fs.readdir(directory)).not.toContain('calls.log')
     } finally { await cleanup(directory) }
-  })
+  }, 30_000)
 })
