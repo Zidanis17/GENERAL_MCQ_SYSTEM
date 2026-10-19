@@ -61,7 +61,7 @@ Windows 10/11, 64-bit. Practice and exams work offline; no Node.js or developmen
 "@
 $notesFile = [IO.Path]::GetTempFileName()
 try {
-    Set-Content -LiteralPath $notesFile -Value $notes -Encoding UTF8
+    [IO.File]::WriteAllText($notesFile, $notes, [Text.UTF8Encoding]::new($false))
     if ($Publish) {
         & gh release edit $tag --repo $repository --notes-file $notesFile --draft=false --latest
         if ($LASTEXITCODE -ne 0) { throw 'Could not publish the verified release.' }
