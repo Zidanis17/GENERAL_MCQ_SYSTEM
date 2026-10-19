@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "getting-started",
+  "title": "A little of everything",
+  "description": "Eight quick questions to get to know MCQ Studio. Science, geography, and a little Arabic.",
+  "questions": [
+    { "id": "mars", "prompt": "Which planet is known as the Red Planet?", "options": [{ "id": "a", "text": "Venus" }, { "id": "b", "text": "Mars" }, { "id": "c", "text": "Jupiter" }, { "id": "d", "text": "Saturn" }], "correctOptionId": "b", "explanation": "Iron oxides on the surface give Mars its distinctive reddish appearance." },
+    { "id": "water", "prompt": "What is the chemical formula for water?", "options": [{ "id": "a", "text": "CO₂" }, { "id": "b", "text": "O₂" }, { "id": "c", "text": "H₂O" }, { "id": "d", "text": "NaCl" }], "correctOptionId": "c", "explanation": "A water molecule contains two hydrogen atoms bonded to one oxygen atom." },
+    { "id": "photosynthesis", "prompt": "During photosynthesis, plants take in which gas from the atmosphere?", "options": [{ "id": "a", "text": "Oxygen" }, { "id": "b", "text": "Carbon dioxide" }, { "id": "c", "text": "Nitrogen" }, { "id": "d", "text": "Helium" }], "correctOptionId": "b", "explanation": "Plants use carbon dioxide and water, with light energy, to make sugars and release oxygen." },
+    { "id": "ocean", "prompt": "Which is the largest ocean on Earth?", "options": [{ "id": "a", "text": "Atlantic Ocean" }, { "id": "b", "text": "Indian Ocean" }, { "id": "c", "text": "Arctic Ocean" }, { "id": "d", "text": "Pacific Ocean" }], "correctOptionId": "d", "explanation": "The Pacific Ocean is the largest and deepest ocean basin." },
+    { "id": "prime", "prompt": "Which of these numbers is prime?", "options": [{ "id": "a", "text": "21" }, { "id": "b", "text": "27" }, { "id": "c", "text": "29" }, { "id": "d", "text": "33" }], "correctOptionId": "c", "explanation": "29 has exactly two positive divisors: 1 and 29." },
+    { "id": "arabic", "prompt": "ما عاصمة مصر؟", "options": [{ "id": "a", "text": "القاهرة" }, { "id": "b", "text": "الإسكندرية" }, { "id": "c", "text": "الأقصر" }, { "id": "d", "text": "أسوان" }], "correctOptionId": "a", "explanation": "القاهرة هي عاصمة جمهورية مصر العربية." },
+    { "id": "binary", "prompt": "The binary number 101 represents which decimal number?", "options": [{ "id": "a", "text": "3" }, { "id": "b", "text": "4" }, { "id": "c", "text": "5" }, { "id": "d", "text": "6" }], "correctOptionId": "c", "explanation": "Reading from right to left, binary place values are 1, 2, and 4. So 101 is 4 + 0 + 1 = 5." },
+    { "id": "heart", "prompt": "How many chambers does a typical human heart have?", "options": [{ "id": "a", "text": "Two" }, { "id": "b", "text": "Three" }, { "id": "c", "text": "Four" }, { "id": "d", "text": "Five" }], "correctOptionId": "c", "explanation": "The heart has two atria and two ventricles." }
+  ]
+}
