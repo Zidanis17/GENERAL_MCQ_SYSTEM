@@ -2,7 +2,7 @@
 
 Offline React + TypeScript + Electron desktop app for JSON question banks, practice, and exams. Targets Windows x64.
 
-Version **1.2.0** supports importing multiple banks together through drag-and-drop or the file picker, with a 10 MiB limit per file. Valid files are saved independently; duplicate IDs offer Replace or Skip, and a completion summary lists any failed files.
+Version **1.2.1** supports importing multiple banks together through drag-and-drop or the file picker, with a 10 MiB limit per file. Valid files are saved independently; duplicate IDs offer Replace or Skip, and a completion summary lists any failed files.
 
 ## Run and build
 
