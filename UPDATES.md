@@ -6,17 +6,9 @@ Timed exams continue counting during a restart. No update forces a restart or in
 
 ## Repository and first release
 
-The public repository is configured as `Zidanis17/GENERAL_MCQ_SYSTEM`. The earlier `v1.1.0` workflow stopped during the build; its tag is kept intact. The corrected build is `v1.1.1`.
+The public repository is configured as `Zidanis17/GENERAL_MCQ_SYSTEM`. The first update-enabled release is **v1.1.1**, available from the repository’s Releases page. Future releases use the version/tag commands below.
 
-After committing the source changes, publish this version with:
-
-```powershell
-git push -u origin main
-git tag v1.1.1
-git push origin v1.1.1
-```
-
-GitHub Actions runs the tests, builds Windows artifacts, uploads everything to a draft release, tests the packaged updater and portable app, and publishes it when those checks succeed. The workflow configures the feed from the actual GitHub repository, checks that the tag matches `package.json`, and uses GitHub’s built-in workflow token. No token is embedded in the app, and users do not need GitHub accounts to receive public updates.
+GitHub Actions runs the tests, builds Windows artifacts, and tests the packaged updater and portable app. It creates one draft, uploads the four release files in sequence, verifies their presence and sizes, and then publishes. The workflow checks that the tag matches `package.json` and uses GitHub’s built-in workflow token. No token is embedded in the app, and users do not need GitHub accounts to receive public updates.
 
 Download the **Setup** executable from that GitHub release and distribute it. Users on v1.0.1 or earlier must install this update-enabled version once; those old builds cannot discover updates on their own. A local build made before a repository is configured also needs that one-time replacement with a configured installer.
 
@@ -37,7 +29,7 @@ Keep this repository available at the same owner/name: installed copies remember
 
 `npm run package:win` builds without uploading anything. After configuration, `release/` also contains `latest.yml`, the setup executable, and its `.blockmap`. These three files must belong to the same version and remain together in the GitHub release. Do not edit `latest.yml`; it includes the artifact checksum. The portable executable can be attached as another manual download.
 
-For a manual upload instead of the workflow, set `GH_TOKEN` in your own shell environment and run `npm run release:win`. This uploads to a draft release. Publish the completed draft from GitHub’s Releases page. Never place the token in project files or in the app’s update configuration.
+For a manual upload instead of the workflow, install the GitHub CLI (`gh`), set `GH_TOKEN` in your own shell environment, and run `npm run release:win`. This uploads to one draft and verifies all four files. Publish that draft from GitHub’s Releases page when ready. Never place the token in project files or in the app’s update configuration. GitHub-hosted runners already include the CLI.
 
 The project currently builds unsigned Windows executables. Existing checksum validation remains enabled; if you later configure Windows code signing, keep a consistent publisher identity between releases so signature validation continues to work.
 

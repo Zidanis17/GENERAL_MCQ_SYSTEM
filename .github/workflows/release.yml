@@ -30,15 +30,13 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run test:e2e
-      - name: Build and upload to a draft release
-        run: npm run release:win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Windows artifacts
+        run: npm run package:win
       - name: Verify packaged update downloads
         run: npm run test:updates
       - name: Verify portable app
         run: npm run test:portable
       - name: Publish the completed release
-        run: gh release edit "$env:GITHUB_REF_NAME" --draft=false --latest
+        run: powershell.exe -NoProfile -File scripts/Publish-Release.ps1 -Publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

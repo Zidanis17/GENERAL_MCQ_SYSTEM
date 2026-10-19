@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -167,6 +168,58 @@ describe('GitHub release configuration', () => {
       expect(() => configure(directory, ['--ci'], { ...env, RELEASE_REPOSITORY_VISIBILITY: 'private' })).toThrow('public')
       configure(directory, ['--ci'], env)
       expect(JSON.parse(await fs.readFile(join(directory, 'package.json'), 'utf8')).build.publish.repo).toBe('mcq-studio')
+    } finally { await cleanup(directory) }
+  })
+})
+
+describe('release asset verification', () => {
+  async function fixture() {
+    const directory = await fs.mkdtemp(join(tmpdir(), 'mcq-studio-publish-'))
+    await fs.mkdir(join(directory, 'release'))
+    await fs.writeFile(join(directory, 'package.json'), JSON.stringify({ version: '1.1.1', build: { publish: { provider: 'github', owner: 'test-owner', repo: 'test-app' } } }))
+    const installer = Buffer.from('A test installer payload; never executed.')
+    await fs.writeFile(join(directory, 'release/MCQ-Studio-Setup-1.1.1.exe'), installer)
+    await fs.writeFile(join(directory, 'release/MCQ-Studio-Portable-1.1.1.exe'), 'test portable')
+    await fs.writeFile(join(directory, 'release/MCQ-Studio-Setup-1.1.1.exe.blockmap'), 'test blockmap')
+    await fs.writeFile(join(directory, 'release/latest.yml'), `version: 1.1.1\npath: MCQ-Studio-Setup-1.1.1.exe\nsha512: ${createHash('sha512').update(installer).digest('base64')}\n`)
+    return directory
+  }
+  function publish(directory: string, omit = false) {
+    try {
+      return execFileSync('powershell.exe', ['-NoProfile', '-File', resolve('tests/fixtures/publish-release.ps1'), '-Workspace', directory, '-PublisherScript', resolve('scripts/Publish-Release.ps1'), '-Journal', join(directory, 'calls.log'), ...(omit ? ['-OmitMetadata'] : [])], { encoding: 'utf8', windowsHide: true, stdio: 'pipe' })
+    } catch (error) {
+      throw new Error(String((error as { stdout?: string }).stdout || (error as Error).message))
+    }
+  }
+  async function cleanup(directory: string) {
+    if (!basename(directory).startsWith('mcq-studio-publish-')) throw new Error('Unexpected test folder')
+    await fs.rm(directory, { recursive: true, force: true })
+  }
+  it('creates one draft and uploads all four assets before publishing', async () => {
+    const directory = await fixture()
+    try {
+      publish(directory)
+      const calls = (await fs.readFile(join(directory, 'calls.log'), 'utf8')).trim().split(/\r?\n/)
+      expect(calls.filter((line) => line.startsWith('release|create|'))).toHaveLength(1)
+      expect(calls.filter((line) => line.startsWith('release|upload|'))).toHaveLength(4)
+      expect(calls.at(-1)).toContain('release|edit|v1.1.1')
+      expect(calls.at(-2)).toContain('release|view|v1.1.1')
+      expect(calls.filter((line) => line.startsWith('release|upload|')).at(-1)).toContain('latest.yml')
+    } finally { await cleanup(directory) }
+  })
+  it('does not publish if GitHub is missing an uploaded asset', async () => {
+    const directory = await fixture()
+    try {
+      expect(() => publish(directory, true)).toThrow('missing or incomplete')
+      expect(await fs.readFile(join(directory, 'calls.log'), 'utf8')).not.toContain('release|edit|')
+    } finally { await cleanup(directory) }
+  })
+  it('rejects mismatched metadata before contacting GitHub', async () => {
+    const directory = await fixture()
+    try {
+      await fs.writeFile(join(directory, 'release/latest.yml'), 'version: 1.1.1\npath: MCQ-Studio-Setup-1.1.1.exe\nsha512: invalid\n')
+      expect(() => publish(directory)).toThrow('checksum')
+      expect(await fs.readdir(directory)).not.toContain('calls.log')
     } finally { await cleanup(directory) }
   })
 })

@@ -21,7 +21,7 @@
     "runtime": "node scripts/ensure-runtime.mjs",
     "package:win": "npm run runtime && npm run icons && npm run build && electron-builder --win --x64 --publish never",
     "updates:configure": "node scripts/configure-updates.mjs",
-    "release:win": "npm run runtime && npm run icons && npm run build && electron-builder --win --x64 --publish always",
+    "release:win": "npm run package:win && powershell.exe -NoProfile -File scripts/Publish-Release.ps1",
     "deliver": "node scripts/deliver.mjs"
   },
   "dependencies": {
