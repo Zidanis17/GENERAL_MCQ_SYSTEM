@@ -1,6 +1,6 @@
 {
   "name": "mcq-studio",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A quiet place to practice. Offline question banks, exams, and progress.",
   "author": "MCQ Studio",
   "license": "MIT",
@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:e2e": "npm run runtime && npm run build && playwright test",
     "test:portable": "node scripts/smoke-portable.mjs",
+    "test:updates": "node scripts/smoke-updates.mjs",
     "build": "npm run typecheck && electron-vite build",
     "icons": "node scripts/create-icon.mjs",
     "runtime": "node scripts/ensure-runtime.mjs",
@@ -87,6 +88,13 @@
     "portable": {
       "artifactName": "MCQ-Studio-Portable-${version}.exe",
       "requestExecutionLevel": "user"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Zidanis17",
+      "repo": "GENERAL_MCQ_SYSTEM",
+      "releaseType": "draft",
+      "publishAutoUpdate": true
     }
   }
 }

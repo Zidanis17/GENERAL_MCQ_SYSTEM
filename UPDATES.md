@@ -4,27 +4,19 @@ The installed Windows app uses `electron-updater` and GitHub Releases. It checks
 
 Timed exams continue counting during a restart. No update forces a restart or installs simply because the user closes the app. Offline study continues normally if an update check fails.
 
-## First-time setup
+## Repository and first release
 
-1. Create an empty **public** GitHub repository, for example `your-name/mcq-studio`. It can hold this source project and its release downloads.
-2. From this project folder, configure the repository and push the source:
+The public repository is configured as `Zidanis17/GENERAL_MCQ_SYSTEM`. The earlier `v1.1.0` workflow stopped during the build; its tag is kept intact. The corrected build is `v1.1.1`.
+
+After committing the source changes, publish this version with:
 
 ```powershell
-npm run updates:configure -- your-name/mcq-studio
-git add package.json
-git commit -m "Configure GitHub releases"
-git remote add origin https://github.com/your-name/mcq-studio.git
 git push -u origin main
+git tag v1.1.1
+git push origin v1.1.1
 ```
 
-3. Publish the first update-enabled release:
-
-```powershell
-git tag v1.1.0
-git push origin v1.1.0
-```
-
-GitHub Actions runs the tests, builds Windows artifacts, uploads everything to a draft release, and publishes it after the uploads succeed. The workflow configures the feed from the actual GitHub repository, checks that the tag matches `package.json`, and uses GitHub’s built-in workflow token. No token is embedded in the app, and users do not need GitHub accounts to receive public updates.
+GitHub Actions runs the tests, builds Windows artifacts, uploads everything to a draft release, tests the packaged updater and portable app, and publishes it when those checks succeed. The workflow configures the feed from the actual GitHub repository, checks that the tag matches `package.json`, and uses GitHub’s built-in workflow token. No token is embedded in the app, and users do not need GitHub accounts to receive public updates.
 
 Download the **Setup** executable from that GitHub release and distribute it. Users on v1.0.1 or earlier must install this update-enabled version once; those old builds cannot discover updates on their own. A local build made before a repository is configured also needs that one-time replacement with a configured installer.
 
@@ -53,4 +45,4 @@ The project currently builds unsigned Windows executables. Existing checksum val
 
 Automatic installation is supported by the **NSIS setup edition**. The portable edition displays an explanation and requires downloading a replacement executable. Development and unconfigured builds display their actual status and do not make automatic network requests.
 
-Run `npm test` for updater state, scheduling, retry, and saved-progress tests. Run `npm run test:e2e` for the Electron UI and study flows, and `npm run test:portable` after packaging. The public GitHub release workflow can be verified after the repository is created; it cannot run against a repository that does not yet exist.
+Run `npm test` for updater state, scheduling, retry, and saved-progress tests. Run `npm run test:e2e` for the Electron UI and study flows. After packaging, `npm run test:updates` serves a real installer through an isolated local update feed and verifies failure/retry, downloading, checksum validation, and restart confirmation without executing an installer. `npm run test:portable` verifies the portable edition and saved progress. The public GitHub workflow can run when the corresponding version tag is pushed.

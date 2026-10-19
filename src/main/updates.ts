@@ -3,7 +3,8 @@ import type { AppUpdateState } from '../shared/updates'
 
 type UpdateBackend = Pick<AppUpdater,
   'autoDownload' | 'autoInstallOnAppQuit' | 'allowPrerelease' | 'allowDowngrade' |
-  'checkForUpdates' | 'quitAndInstall'> & {
+  'quitAndInstall'> & {
+    checkForUpdates(): Promise<{ downloadPromise?: Promise<unknown> | null } | null>
     on(event: Parameters<AppUpdater['on']>[0], listener: (...args: any[]) => void): unknown
     removeListener(event: Parameters<AppUpdater['on']>[0], listener: (...args: any[]) => void): unknown
   }

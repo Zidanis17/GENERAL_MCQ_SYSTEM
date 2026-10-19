@@ -83,7 +83,7 @@ describe('update behavior', () => {
     expect(backend.quitAndInstall).toHaveBeenCalledWith(true, true)
   })
   it('does not install if progress could not be saved and allows retrying', async () => {
-    const flush = vi.fn(async () => { throw new Error('Disk full') })
+    const flush = vi.fn<() => Promise<void>>(async () => { throw new Error('Disk full') })
     const { backend, controller } = create(null, flush)
     backend.emit('update-downloaded', { version: '1.1.1' })
     await expect(controller.install()).rejects.toThrow('Disk full')
