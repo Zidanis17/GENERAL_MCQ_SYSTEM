@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import example from '../../examples/general-knowledge.json' with { type: 'json' }
+import manifest from '../../package.json' with { type: 'json' }
 
 let application: ElectronApplication | undefined
 let page: Page
@@ -147,6 +148,21 @@ test('invalid imports explain the problem without adding a bank', async () => {
   const oversized = join(directory, 'oversized.json'); await fs.writeFile(oversized, ' '.repeat(10 * 1024 * 1024 + 1))
   await page.getByTestId('file-input').setInputFiles(oversized)
   await expect(page.getByRole('alert')).toContainText('10 MiB')
+})
+
+test('app updates show the real version and explain unavailable updates without blocking study', async () => {
+  await page.getByRole('button', { name: 'App updates', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'App updates' })
+  await expect(dialog).toContainText(`MCQ Studio · Version ${manifest.version}`)
+  const result = await page.evaluate(() => window.studio.getUpdateState())
+  if (!result.ok) throw new Error(result.error)
+  const check = dialog.getByRole('button', { name: 'Check for updates', exact: true })
+  if (result.value.phase === 'disabled') {
+    await expect(check).toBeDisabled()
+    await expect(dialog).toContainText(result.value.message!)
+  } else await expect(check).toBeEnabled()
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await importFile()
 })
 
 test('native import, example export, offline restrictions and Unicode plain text', async () => {

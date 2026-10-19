@@ -12,7 +12,8 @@ const files=[
   ['examples/general-knowledge.json','Example question bank.json'],
   ['question-bank.schema.json','question-bank.schema.json'],
   ['USAGE.md','Start here.md'],
-  ['FORMAT.md','File format.md']
+  ['FORMAT.md','File format.md'],
+  ['UPDATES.md','Publish updates.md']
 ]
 for(const [source]of files)await access(source)
 await mkdir(destination,{recursive:true})

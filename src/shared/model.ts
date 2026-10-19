@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { AppUpdateState } from './updates'
 
 export const MAX_IMPORT_BYTES = 10 * 1024 * 1024
 const text = z.string().refine((value) => value.trim().length > 0, 'Must not be blank')
@@ -100,6 +101,10 @@ export interface StudioAPI {
   submit(): Promise<Result<AppState>>
   discard(): Promise<Result<AppState>>
   exportExample(): Promise<Result<boolean>>
+  getUpdateState(): Promise<Result<AppUpdateState>>
+  checkForUpdates(): Promise<Result<AppUpdateState>>
+  installUpdate(): Promise<Result<AppUpdateState>>
+  onUpdateState(callback: (state: AppUpdateState) => void): () => void
   onState(callback: (state: AppState) => void): () => void
   onError(callback: (message: string) => void): () => void
 }

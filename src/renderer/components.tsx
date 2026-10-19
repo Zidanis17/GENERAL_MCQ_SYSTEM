@@ -3,6 +3,7 @@ import type { QuizSource, StartConfig } from '../shared/model'
 
 export function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
+    update: <><path d="M20 7a9 9 0 0 0-15-1L3 9m0-6v6h6M4 17a9 9 0 0 0 15 1l2-3m0 6v-6h-6" /></>,
     library: <><rect x="3" y="4" width="7" height="16" rx="1.5" /><path d="M6.5 8v8M14 5l4-1 4 15-4 1z" /></>,
     history: <><path d="M3 10a9 9 0 1 1 1 7M3 4v6h6M12 7v5l3 2" /></>,
     upload: <><path d="M12 16V3m-5 5 5-5 5 5M4 15v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5" /></>,

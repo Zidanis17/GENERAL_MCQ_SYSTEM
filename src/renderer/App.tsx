@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { bankSchema, MAX_IMPORT_BYTES, selectedAnswer, type AppState, type Attempt, type QuestionBank, type QuizSession, type Result, type StartConfig } from '../shared/model'
 import exampleJSON from '../../examples/general-knowledge.json'
 import { dateLabel, durationLabel, Icon, Logo, Modal, SetupDialog, Timer, type Setup } from './components'
+import { AppUpdates } from './AppUpdates'
 
 type Page = 'library' | 'history' | 'quiz' | 'result'
 type Confirmation = { title: string; body: string; label: string; danger?: boolean; action: () => Promise<void>; resume?: () => void }
@@ -118,7 +119,7 @@ export function App() {
       <div className="workspace-label">YOUR WORKSPACE</div>
       <nav aria-label="Main navigation"><button className={`nav-item ${page === 'library' ? 'active' : ''}`} onClick={() => go('library')}><Icon name="library" />Library<span className="nav-count">{data.banks.length}</span></button><button className={`nav-item ${page === 'history' || page === 'result' ? 'active' : ''}`} onClick={() => go('history')}><Icon name="history" />History{data.attempts.length > 0 && <span className="nav-count">{data.attempts.length}</span>}</button></nav>
       {data.activeSession && <div className="sidebar-session"><span className="eyebrow">IN PROGRESS</span><p dir="auto">{data.activeSession.bankTitle}</p><span>{answered} of {data.activeSession.questions.length} answered</span><button className="text-button" onClick={() => go('quiz')}>Resume session<Icon name="arrow" size={15} /></button></div>}
-      <div className="sidebar-bottom"><button className="nav-item help-button" onClick={() => setHelp(true)}><Icon name="info" size={18} />File format & help</button><div className="offline"><span className="status-dot" />All yours. All offline.<small>MCQ Studio · 1.0</small></div></div>
+      <div className="sidebar-bottom"><AppUpdates /><button className="nav-item help-button" onClick={() => setHelp(true)}><Icon name="info" size={18} />File format & help</button><div className="offline"><span className="status-dot" />Your learning stays here.</div></div>
     </aside>
     <main className={`main ${isStudying ? 'study-main' : ''}`} aria-busy={busy}>
       <header className="topbar"><div className="breadcrumb">Workspace<span>/</span><strong>{page === 'library' ? 'Library' : page === 'history' ? 'History' : page === 'quiz' ? 'Session' : 'Results'}</strong></div><span className="local-label"><span className="status-dot" />Saved on this device</span></header>

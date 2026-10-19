@@ -1,11 +1,14 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron'
-import { promises as fs } from 'node:fs'
+import { existsSync, promises as fs } from 'node:fs'
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { z } from 'zod'
 import { bankSchema, formatValidation, MAX_IMPORT_BYTES, parseBank, startSchema, type Result } from '../shared/model'
 import example from '../../examples/general-knowledge.json'
 import { StateStore } from './store'
+import electronUpdater from 'electron-updater'
+import { UpdateController } from './updates'
+import { updateDisabledReason } from '../shared/updates'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const rendererRoot = resolve(here, '../renderer')
@@ -16,6 +19,7 @@ app.setAppUserModelId('com.mcqstudio.desktop')
 app.setPath('userData', process.env.MCQ_STUDIO_DATA_DIR || join(app.getPath('appData'), app.isPackaged ? 'MCQ Studio' : 'MCQ Studio Development'))
 let window: BrowserWindow | null = null
 let store: StateStore
+let updates: UpdateController
 let timer: ReturnType<typeof setInterval> | undefined
 let quitting = false
 
@@ -26,6 +30,13 @@ else {
     store = new StateStore(app.getPath('userData'))
     await store.initialize()
     await store.expireIfNeeded()
+    updates = new UpdateController(
+      electronUpdater.autoUpdater,
+      app.getVersion(),
+      updateDisabledReason(app.isPackaged, Boolean(process.env.PORTABLE_EXECUTABLE_DIR), existsSync(join(process.resourcesPath, 'app-update.yml'))),
+      (state) => { if (window && !window.isDestroyed()) window.webContents.send('studio:update', state) },
+      () => store.flush()
+    )
     protocol.handle('app', async (request) => {
       const url = new URL(request.url)
       if (url.hostname !== 'bundle') return new Response('Not found', { status: 404 })
@@ -39,6 +50,7 @@ else {
     if (app.isPackaged) session.defaultSession.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] }, (_details, callback) => callback({ cancel: true }))
     registerHandlers()
     createWindow()
+    updates.start()
     timer = setInterval(async () => {
       const deadline = store.activeDeadline
       if (deadline !== null && deadline <= Date.now()) {
@@ -82,6 +94,9 @@ function handle(channel: string, operation: (...args: any[]) => unknown): void {
 }
 
 function registerHandlers(): void {
+  handle('getUpdateState', () => updates.snapshot())
+  handle('checkForUpdates', () => updates.check())
+  handle('installUpdate', () => updates.install())
   handle('load', async () => ({ state: await store.expireIfNeeded(), notice: store.notice }))
   handle('chooseBank', async () => {
     const result = await dialog.showOpenDialog(window!, { title: 'Import a question bank', properties: ['openFile'], filters: [{ name: 'Question bank (JSON)', extensions: ['json'] }] })
@@ -112,6 +127,7 @@ app.on('before-quit', (event) => {
   if (quitting || !store) return
   event.preventDefault()
   quitting = true
+  updates?.dispose()
   if (timer) clearInterval(timer)
   void store.flush().finally(() => app.quit())
 })

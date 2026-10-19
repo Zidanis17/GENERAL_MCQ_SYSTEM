@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AppState, StudioAPI } from '../shared/model'
+import type { AppUpdateState } from '../shared/updates'
 
 const api: StudioAPI = {
   load: () => ipcRenderer.invoke('studio:load'),
@@ -14,6 +15,14 @@ const api: StudioAPI = {
   submit: () => ipcRenderer.invoke('studio:submit'),
   discard: () => ipcRenderer.invoke('studio:discard'),
   exportExample: () => ipcRenderer.invoke('studio:exportExample'),
+  getUpdateState: () => ipcRenderer.invoke('studio:getUpdateState'),
+  checkForUpdates: () => ipcRenderer.invoke('studio:checkForUpdates'),
+  installUpdate: () => ipcRenderer.invoke('studio:installUpdate'),
+  onUpdateState: (callback) => {
+    const listener = (_event: unknown, state: AppUpdateState) => callback(state)
+    ipcRenderer.on('studio:update', listener)
+    return () => { ipcRenderer.removeListener('studio:update', listener) }
+  },
   onState: (callback) => {
     const listener = (_event: unknown, state: AppState) => callback(state)
     ipcRenderer.on('studio:state', listener)

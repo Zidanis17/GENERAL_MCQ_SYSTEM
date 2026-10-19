@@ -35,6 +35,10 @@ async function close(page) {
 try {
   await mkdir('.cache', { recursive: true })
   let page = await launch()
+  await page.getByRole('button', { name: 'App updates', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'App updates' })).toContainText('portable edition')
+  await expect(page.getByRole('dialog', { name: 'App updates' })).toContainText(`Version ${version}`)
+  await page.getByRole('dialog', { name: 'App updates' }).getByRole('button', { name: 'Close', exact: true }).click()
   await page.getByTestId('file-input').setInputFiles(resolve('examples/general-knowledge.json'))
   await expect(page.getByRole('heading', { name: 'A little of everything', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Start studying' }).click()

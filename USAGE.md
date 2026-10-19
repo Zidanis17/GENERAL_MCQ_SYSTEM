@@ -18,3 +18,9 @@ For your own files, see **File format.md**, or open **File format & help** in th
 The portable and installed editions share `%APPDATA%\MCQ Studio`. Imported banks and progress stay on this computer. Copy that folder while the app is closed if you want a manual backup. Automatic writes maintain a previous good copy; if damaged saved data is detected, the app recovers from it when possible and keeps damaged files for recovery.
 
 The portable executable stores its data in your Windows user profile, rather than beside the executable. Moving the executable does not move your progress. Uninstalling leaves your saved data intact.
+
+## App updates
+
+Open **App updates** in the sidebar to see your version or check for a new release. Configured installed editions also check automatically and download new versions in the background. When an update is ready, choose **Restart to update**, then confirm. Your progress is saved before installation. You can choose **Later** and keep studying; timed exams continue counting during any restart.
+
+Portable editions require downloading a replacement executable. If the app says it is not connected to a release repository, install a release configured by the publisher. Users of v1.0.1 or earlier need to install an update-enabled setup release once before future updates can arrive through the app.

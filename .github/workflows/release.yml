@@ -1,0 +1,40 @@
+name: Release Windows app
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Configure repository and validate release tag
+        run: node scripts/configure-updates.mjs --ci
+        env:
+          RELEASE_REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
+      - run: npm ci
+      - run: npm test
+      - run: npm run test:e2e
+      - name: Build and upload to a draft release
+        run: npm run release:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the completed release
+        run: gh release edit "$env:GITHUB_REF_NAME" --draft=false --latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
