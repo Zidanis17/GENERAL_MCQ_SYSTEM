@@ -18,9 +18,14 @@ foreach ($name in $names) {
     if ($file.Length -le 0) { throw "Release file is empty: $name" }
 }
 $metadata = Get-Content -LiteralPath (Join-Path $artifactRoot 'latest.yml') -Raw
-$hex = (Get-FileHash -LiteralPath (Join-Path $artifactRoot $names[0]) -Algorithm SHA512).Hash
-$bytes = for ($index = 0; $index -lt $hex.Length; $index += 2) { [Convert]::ToByte($hex.Substring($index, 2), 16) }
-$checksum = [Convert]::ToBase64String([byte[]]$bytes)
+$hasher = [Security.Cryptography.SHA512]::Create()
+$installerStream = [IO.File]::OpenRead((Join-Path $artifactRoot $names[0]))
+try {
+    $checksum = [Convert]::ToBase64String($hasher.ComputeHash($installerStream))
+} finally {
+    $installerStream.Dispose()
+    $hasher.Dispose()
+}
 if ($metadata -notmatch "(?m)^version:\s*$([regex]::Escape($version))\s*$" -or $metadata -notmatch "(?m)^path:\s*$([regex]::Escape($names[0]))\s*$" -or $metadata -notmatch "(?m)^sha512:\s*$([regex]::Escape($checksum))\s*$") {
     throw 'latest.yml does not match the release version and installer checksum.'
 }
