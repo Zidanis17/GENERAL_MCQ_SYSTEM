@@ -3,6 +3,7 @@ import { bankSchema, MAX_IMPORT_BYTES, selectedAnswer, type AppState, type Attem
 import exampleJSON from '../../examples/general-knowledge.json'
 import { dateLabel, durationLabel, Icon, Logo, Modal, SetupDialog, Timer, type Setup } from './components'
 import { AppUpdates } from './AppUpdates'
+import { importBanks, type BankImportSource, type BankImportSummary } from './import-banks'
 
 type Page = 'library' | 'history' | 'quiz' | 'result'
 type Confirmation = { title: string; body: string; label: string; danger?: boolean; action: () => Promise<void>; resume?: () => void }
@@ -28,6 +29,10 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null)
   const [setup, setSetup] = useState<Setup | null>(null)
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
+  const [importConfirmation, setImportConfirmation] = useState<{ name: string; existing: QuestionBank; incoming: QuestionBank } | null>(null)
+  const replacementDecision = useRef<((replace: boolean) => void) | null>(null)
+  const [importProgress, setImportProgress] = useState<{ current: number; total: number; name: string } | null>(null)
+  const [importSummary, setImportSummary] = useState<BankImportSummary | null>(null)
   const [help, setHelp] = useState(false)
   const [dragging, setDragging] = useState(false)
   const dragCount = useRef(0)
@@ -59,25 +64,46 @@ export function App() {
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(null), 5000); return () => clearTimeout(timer) }, [toast])
 
   function openBank(bank: QuestionBank) { setSetup({ source: { kind: 'bank', id: bank.id }, title: bank.title, count: bank.questions.length }) }
-  async function acceptBank(bank: QuestionBank) {
-    const existing = dataRef.current?.banks.find((entry) => entry.bank.id === bank.id)
-    if (existing) {
-      setConfirmation({ title: 'Replace this question bank?', body: `“${existing.bank.title}” uses the same bank ID. Replace it with “${bank.title}”? Your past results and unfinished quiz will be kept.`, label: 'Replace bank', action: async () => { receive(await unwrap(api.saveBank(bank, true))); setConfirmation(null); setToast('Question bank updated.'); go('library') } })
-    } else { receive(await unwrap(api.saveBank(bank, false))); setToast('Question bank added to your library.'); go('library') }
+  function canImport() {
+    return !working.current && !document.querySelector('dialog[open]')
   }
-  function chooseBank() { void perform(async () => { const bank = await unwrap(api.chooseBank()); if (bank) await acceptBank(bank) }) }
-  function importFile(file: File | undefined) {
-    if (!file) return
+  function decideReplacement(replace: boolean) {
+    const resolve = replacementDecision.current
+    replacementDecision.current = null
+    setImportConfirmation(null)
+    resolve?.(replace)
+  }
+  async function runImports(sources: BankImportSource[]) {
+    setImportSummary(null); setToast(null); setSearch(''); go('library')
+    try {
+      setImportSummary(await importBanks(sources, {
+        findBank: (id) => dataRef.current?.banks.find((entry) => entry.bank.id === id)?.bank,
+        confirmReplace: (name, existing, incoming) => new Promise<boolean>((resolve) => {
+          replacementDecision.current = resolve
+          setImportConfirmation({ name, existing, incoming })
+        }),
+        saveBank: async (bank, replace) => { receive(await unwrap(api.saveBank(bank, replace))) },
+        onProgress: (current, total, name) => setImportProgress({ current, total, name })
+      }))
+    } finally { setImportProgress(null) }
+  }
+  function chooseBanks() {
+    if (!canImport()) return
     void perform(async () => {
-      if (file.size > MAX_IMPORT_BYTES) throw new Error('This file exceeds the 10 MiB limit.')
-      await acceptBank(await unwrap(api.parseBank(await file.text())))
+      const files = await unwrap(api.chooseBanks())
+      if (files?.length) await runImports(files.map(({ name, result }) => ({ name, read: () => unwrap(Promise.resolve(result)) })))
     })
+  }
+  function importFiles(files: File[]) {
+    if (files.length === 0 || !canImport()) return
+    void perform(() => runImports(files.map((file) => ({ name: file.name, read: async () => {
+      if (file.size > MAX_IMPORT_BYTES) throw new Error('This file exceeds the 10 MiB limit.')
+      return unwrap(api.parseBank(await file.text()))
+    } }))))
   }
   function dropFile(event: DragEvent) {
     event.preventDefault(); setDragging(false); dragCount.current = 0
-    if (confirmation || setup || help) return
-    if (event.dataTransfer.files.length !== 1) { setError('Please import one JSON question bank at a time.'); return }
-    importFile(event.dataTransfer.files[0])
+    importFiles(Array.from(event.dataTransfer.files))
   }
   function tryExample() {
     void perform(async () => {
@@ -91,17 +117,19 @@ export function App() {
     receive(next); setSetup(null); setConfirmation(null); go('quiz')
   }
   function start(config: StartConfig) {
+    if (working.current) return
     if (data?.activeSession) {
       setConfirmation({ title: 'You have a session in progress', body: `Resume “${data.activeSession.bankTitle}”, or discard that progress and start this session. Completed results will be kept.`, label: 'Discard & start', danger: true, action: () => begin({ ...config, discardActive: true }), resume: () => { setSetup(null); setConfirmation(null); go('quiz') } })
     } else void perform(() => begin(config))
   }
   function submit() {
-    if (!data?.activeSession) return
+    if (working.current || !data?.activeSession) return
     const unanswered = data.activeSession.questions.filter((q) => selectedAnswer(data.activeSession!, q.id) === undefined).length
     setConfirmation({ title: 'Ready to finish?', body: unanswered ? `You have ${unanswered} unanswered question${unanswered === 1 ? '' : 's'}. Unanswered questions receive no points. Submit to see your results.` : 'Your answers will be saved, and you can review your results and explanations.', label: 'Submit quiz', action: async () => { receive(await unwrap(api.submit())); setConfirmation(null) } })
   }
   function openResult(attempt: Attempt) { setResultId(attempt.id); go('result') }
   function retry(attempt: Attempt, missedOnly: boolean) {
+    if (working.current) return
     const count = missedOnly ? attempt.summary.incorrect + attempt.summary.unanswered : attempt.summary.total
     setSetup({ source: { kind: 'attempt', id: attempt.id, missedOnly }, title: attempt.session.bankTitle, count })
   }
@@ -112,26 +140,28 @@ export function App() {
   const visibleBanks = data.banks.filter(({ bank }) => bank.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
   const answered = data.activeSession ? Object.keys(data.activeSession.answers).length : 0
 
-  return <div className="app" onDragEnter={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); dragCount.current++; setDragging(true) } }} onDragLeave={(e) => { if (e.dataTransfer.types.includes('Files')) { dragCount.current--; if (dragCount.current <= 0) setDragging(false) } }} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = busy ? 'none' : 'copy' }} onDrop={dropFile}>
-    <input className="sr-only" type="file" accept=".json,application/json" tabIndex={-1} aria-hidden="true" data-testid="file-input" onChange={(e) => { importFile(e.target.files?.[0]); e.target.value = '' }} />
+  return <div className="app" onDragEnter={(e) => { if (e.dataTransfer.types.includes('Files') && canImport()) { e.preventDefault(); dragCount.current++; setDragging(true) } }} onDragLeave={(e) => { if (e.dataTransfer.types.includes('Files')) { dragCount.current--; if (dragCount.current <= 0) setDragging(false) } }} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = canImport() ? 'copy' : 'none' }} onDrop={dropFile}>
+    <input className="sr-only" type="file" multiple accept=".json,application/json" disabled={busy} tabIndex={-1} aria-hidden="true" data-testid="file-input" onChange={(e) => { importFiles(Array.from(e.target.files || [])); e.target.value = '' }} />
     <aside className="sidebar">
       <a href="#" className="brand" onClick={(e) => { e.preventDefault(); go('library') }}><Logo /><span>MCQ <strong>Studio</strong></span></a>
       <div className="workspace-label">YOUR WORKSPACE</div>
       <nav aria-label="Main navigation"><button className={`nav-item ${page === 'library' ? 'active' : ''}`} onClick={() => go('library')}><Icon name="library" />Library<span className="nav-count">{data.banks.length}</span></button><button className={`nav-item ${page === 'history' || page === 'result' ? 'active' : ''}`} onClick={() => go('history')}><Icon name="history" />History{data.attempts.length > 0 && <span className="nav-count">{data.attempts.length}</span>}</button></nav>
-      {data.activeSession && <div className="sidebar-session"><span className="eyebrow">IN PROGRESS</span><p dir="auto">{data.activeSession.bankTitle}</p><span>{answered} of {data.activeSession.questions.length} answered</span><button className="text-button" onClick={() => go('quiz')}>Resume session<Icon name="arrow" size={15} /></button></div>}
-      <div className="sidebar-bottom"><AppUpdates /><button className="nav-item help-button" onClick={() => setHelp(true)}><Icon name="info" size={18} />File format & help</button><div className="offline"><span className="status-dot" />Your learning stays here.</div></div>
+      {data.activeSession && <div className="sidebar-session"><span className="eyebrow">IN PROGRESS</span><p dir="auto">{data.activeSession.bankTitle}</p><span>{answered} of {data.activeSession.questions.length} answered</span><button className="text-button" disabled={busy} onClick={() => go('quiz')}>Resume session<Icon name="arrow" size={15} /></button></div>}
+      <div className="sidebar-bottom"><AppUpdates disabled={busy} /><button className="nav-item help-button" disabled={busy} onClick={() => setHelp(true)}><Icon name="info" size={18} />File format & help</button><div className="offline"><span className="status-dot" />Your learning stays here.</div></div>
     </aside>
     <main className={`main ${isStudying ? 'study-main' : ''}`} aria-busy={busy}>
       <header className="topbar"><div className="breadcrumb">Workspace<span>/</span><strong>{page === 'library' ? 'Library' : page === 'history' ? 'History' : page === 'quiz' ? 'Session' : 'Results'}</strong></div><span className="local-label"><span className="status-dot" />Saved on this device</span></header>
       <div className="content">
         {error && <div className="banner error" role="alert"><Icon name="info" /><span>{error}</span><button className="icon-button" aria-label="Dismiss error" onClick={() => setError(null)}><Icon name="close" size={17} /></button></div>}
         {notice && <div className="banner" role="status"><Icon name="info" /><span>{notice}</span><button className="icon-button" aria-label="Dismiss notice" onClick={() => setNotice(null)}><Icon name="close" size={17} /></button></div>}
+        {importProgress && <div className="banner" role="status" aria-label="Import progress"><Icon name="upload" /><span>Importing file {importProgress.current} of {importProgress.total}: <bdi>{importProgress.name}</bdi></span></div>}
+        {importSummary && <div className={`banner import-summary ${importSummary.failures.length ? 'error' : ''}`} role={importSummary.failures.length ? 'alert' : 'status'} aria-label="Import results"><Icon name={importSummary.failures.length ? 'info' : 'check'} /><span><strong>Import complete</strong><span className="import-counts">{importSummary.added} added · {importSummary.replaced} replaced · {importSummary.skipped} skipped · {importSummary.failures.length} failed</span>{importSummary.failures.map((failure, index) => <span className="import-failure" key={index}><bdi>{failure.name}</bdi>: {failure.error}</span>)}</span><button className="icon-button" aria-label="Dismiss import results" onClick={() => setImportSummary(null)}><Icon name="close" size={17} /></button></div>}
         {page === 'library' && <>
-          <div className="page-heading"><div><span className="eyebrow">A LITTLE PROGRESS, EVERY DAY</span><h1>Your library<span className="title-dot">.</span></h1><p>A place for everything you’re learning.</p></div><button className="button primary" onClick={chooseBank} disabled={busy}><Icon name="upload" size={18} />Import question bank</button></div>
+          <div className="page-heading"><div><span className="eyebrow">A LITTLE PROGRESS, EVERY DAY</span><h1>Your library<span className="title-dot">.</span></h1><p>A place for everything you’re learning.</p></div><button className="button primary" onClick={chooseBanks} disabled={busy}><Icon name="upload" size={18} />Import question banks</button></div>
           <div className="stats"><div><span className="stat-icon blue"><Icon name="library" /></span><div><strong>{data.banks.length}</strong><span>Question banks</span></div></div><div><span className="stat-icon violet"><Icon name="file" /></span><div><strong>{data.banks.reduce((sum, entry) => sum + entry.bank.questions.length, 0).toLocaleString()}</strong><span>Questions to explore</span></div></div><div><span className="stat-icon green"><Icon name="check" /></span><div><strong>{data.attempts.length}</strong><span>Sessions completed</span></div></div></div>
-          {data.activeSession && <div className="resume-banner"><div className="resume-symbol"><Icon name="clock" size={22} /></div><div><strong>Pick up where you left off</strong><p><bdi>{data.activeSession.bankTitle}</bdi><span className="middle-dot">·</span>{answered} of {data.activeSession.questions.length} answered</p></div><button className="button secondary" onClick={() => go('quiz')}>Resume<Icon name="arrow" size={16} /></button></div>}
+          {data.activeSession && <div className="resume-banner"><div className="resume-symbol"><Icon name="clock" size={22} /></div><div><strong>Pick up where you left off</strong><p><bdi>{data.activeSession.bankTitle}</bdi><span className="middle-dot">·</span>{answered} of {data.activeSession.questions.length} answered</p></div><button className="button secondary" disabled={busy} onClick={() => go('quiz')}>Resume<Icon name="arrow" size={16} /></button></div>}
           <div className="section-heading"><h2>Question banks<span>{data.banks.length}</span></h2><label className="search"><Icon name="search" size={17} /><input aria-label="Search question banks" placeholder="Search your library…" value={search} onChange={(e) => setSearch(e.target.value)} /></label></div>
-          {data.banks.length === 0 ? <div className="empty-library"><div className="empty-illustration"><div className="paper behind" /><div className="paper front"><span className="paper-line" /><span className="paper-line short" /><span className="paper-choice"><i /><b /></span><span className="paper-choice selected"><i /><b /></span><span className="paper-choice"><i /><b /></span></div><span className="floating-check"><Icon name="check" size={21} /></span></div><h2>Your next chapter starts here</h2><p>Bring your questions. We’ll make room for the learning.<br />Import a JSON question bank to get started.</p><button className="button primary" onClick={chooseBank} disabled={busy}><Icon name="upload" size={17} />Choose a JSON file</button><span className="drop-hint">or drop your file anywhere in the app · up to 10 MiB</span></div> : visibleBanks.length === 0 ? <div className="empty-small"><Icon name="search" size={30} /><h3>No matching banks</h3><p>Try another title or <button className="text-button inline" onClick={() => setSearch('')}>clear your search</button>.</p></div> : <div className="bank-grid">{visibleBanks.map(({ bank, importedAt }, index) => <article className="bank-card" key={bank.id}><div className="bank-card-top"><span className={`bank-icon tone-${index % 3}`}><Icon name="file" size={23} /></span><button className="icon-button delete-button" aria-label={`Delete ${bank.title}`} disabled={busy} onClick={() => setConfirmation({ title: 'Remove this question bank?', body: `Remove “${bank.title}” from your library? Your saved results and unfinished session will be kept. You can import the file again later.`, label: 'Remove bank', danger: true, action: async () => { receive(await unwrap(api.removeBank(bank.id))); setConfirmation(null); setToast('Question bank removed.') } })}><Icon name="trash" size={17} /></button></div><h3 dir="auto">{bank.title}</h3><p className="bank-description" dir="auto">{bank.description || 'A fresh set of questions. Ready when you are.'}</p><div className="bank-meta"><span>{bank.questions.length} questions</span><span>Added {dateLabel(importedAt)}</span></div><button className="button card-button" onClick={() => openBank(bank)} disabled={busy}>Start studying<Icon name="arrow" size={17} /></button></article>)}</div>}
+          {data.banks.length === 0 ? <div className="empty-library"><div className="empty-illustration"><div className="paper behind" /><div className="paper front"><span className="paper-line" /><span className="paper-line short" /><span className="paper-choice"><i /><b /></span><span className="paper-choice selected"><i /><b /></span><span className="paper-choice"><i /><b /></span></div><span className="floating-check"><Icon name="check" size={21} /></span></div><h2>Your next chapter starts here</h2><p>Bring your questions. We’ll make room for the learning.<br />Import one or more JSON question banks to get started.</p><button className="button primary" onClick={chooseBanks} disabled={busy}><Icon name="upload" size={17} />Choose JSON files</button><span className="drop-hint">or drop files anywhere in the app · up to 10 MiB each</span></div> : visibleBanks.length === 0 ? <div className="empty-small"><Icon name="search" size={30} /><h3>No matching banks</h3><p>Try another title or <button className="text-button inline" onClick={() => setSearch('')}>clear your search</button>.</p></div> : <div className="bank-grid">{visibleBanks.map(({ bank, importedAt }, index) => <article className="bank-card" key={bank.id}><div className="bank-card-top"><span className={`bank-icon tone-${index % 3}`}><Icon name="file" size={23} /></span><button className="icon-button delete-button" aria-label={`Delete ${bank.title}`} disabled={busy} onClick={() => setConfirmation({ title: 'Remove this question bank?', body: `Remove “${bank.title}” from your library? Your saved results and unfinished session will be kept. You can import the file again later.`, label: 'Remove bank', danger: true, action: async () => { receive(await unwrap(api.removeBank(bank.id))); setConfirmation(null); setToast('Question bank removed.') } })}><Icon name="trash" size={17} /></button></div><h3 dir="auto">{bank.title}</h3><p className="bank-description" dir="auto">{bank.description || 'A fresh set of questions. Ready when you are.'}</p><div className="bank-meta"><span>{bank.questions.length} questions</span><span>Added {dateLabel(importedAt)}</span></div><button className="button card-button" onClick={() => openBank(bank)} disabled={busy}>Start studying<Icon name="arrow" size={17} /></button></article>)}</div>}
           <div className="example-banner"><span className="example-icon"><Icon name="spark" size={22} /></span><div><strong>A small start goes a long way.</strong><p>Try our example bank, or save it to see how to format your own.</p></div><button className="text-button" onClick={tryExample} disabled={busy}>Try the example<Icon name="arrow" size={16} /></button></div>
           <div className="page-footer"><Icon name="leaf" size={15} />Your questions stay on your computer. Study at your own pace.</div>
         </>}
@@ -142,10 +172,11 @@ export function App() {
       </div>
     </main>
     {setup && <SetupDialog key={`${setup.source.kind}-${setup.source.id}`} setup={setup} busy={busy} onClose={() => setSetup(null)} onStart={start} />}
-    {help && <Modal title="Your questions, one simple file" wide onClose={() => setHelp(false)} busy={busy}><div className="help-content"><p>Import a UTF-8 JSON file with this structure. You can write your own, or ask a tool to create one in this format.</p><pre>{JSON.stringify({ schemaVersion: 1, id: 'my-bank', title: 'My question bank', questions: [{ id: 'q1', prompt: 'What is 2 + 2?', options: [{ id: 'a', text: '3' }, { id: 'b', text: '4' }], correctOptionId: 'b', explanation: 'Two plus two equals four.' }] }, null, 2)}</pre><ul><li>Each question needs two or more choices and one correct answer.</li><li>Bank, question, and option IDs are nonempty text. Question IDs must be unique in a bank; option IDs must be unique in a question.</li><li><code>description</code> on the bank and <code>explanation</code> on questions are optional.</li><li>Text can be in any language. Images and text formatting are not supported.</li><li>Files can be up to 10 MiB. Import a bank with the same ID to update it.</li></ul><p className="muted">Everything stays on this device. Practice checks answers as you go. Exams reveal answers after submission; timed exams keep counting down if you close the app.</p></div><div className="modal-actions"><button className="button secondary" onClick={() => setHelp(false)} disabled={busy}>Done</button><button className="button primary" disabled={busy} onClick={() => { void perform(async () => { if (await unwrap(api.exportExample())) setToast('Example JSON saved.') }) }}><Icon name="download" size={17} />Save example JSON</button></div></Modal>}
+    {help && <Modal title="Your questions, one simple file" wide onClose={() => setHelp(false)} busy={busy}><div className="help-content"><p>Import a UTF-8 JSON file with this structure. You can write your own, or ask a tool to create one in this format.</p><pre>{JSON.stringify({ schemaVersion: 1, id: 'my-bank', title: 'My question bank', questions: [{ id: 'q1', prompt: 'What is 2 + 2?', options: [{ id: 'a', text: '3' }, { id: 'b', text: '4' }], correctOptionId: 'b', explanation: 'Two plus two equals four.' }] }, null, 2)}</pre><ul><li>Each question needs two or more choices and one correct answer.</li><li>Bank, question, and option IDs are nonempty text. Question IDs must be unique in a bank; option IDs must be unique in a question.</li><li><code>description</code> on the bank and <code>explanation</code> on questions are optional.</li><li>Text can be in any language. Images and text formatting are not supported.</li><li>Select or drop multiple JSON files together, up to 10 MiB each. Valid banks are saved even if other files fail; the summary names any failed files. For duplicate bank IDs, choose Replace bank or Skip. Closing the prompt also skips that file.</li></ul><p className="muted">Everything stays on this device. Practice checks answers as you go. Exams reveal answers after submission; timed exams keep counting down if you close the app.</p></div><div className="modal-actions"><button className="button secondary" onClick={() => setHelp(false)} disabled={busy}>Done</button><button className="button primary" disabled={busy} onClick={() => { void perform(async () => { if (await unwrap(api.exportExample())) setToast('Example JSON saved.') }) }}><Icon name="download" size={17} />Save example JSON</button></div></Modal>}
     {confirmation && <Modal title={confirmation.title} busy={busy} onClose={() => setConfirmation(null)}><p className="confirmation-body">{confirmation.body}</p><div className="modal-actions">{confirmation.resume ? <button className="button secondary" onClick={confirmation.resume} disabled={busy}>Resume existing</button> : <button className="button secondary" onClick={() => setConfirmation(null)} disabled={busy}>Cancel</button>}<button className={`button ${confirmation.danger ? 'danger' : 'primary'}`} disabled={busy} onClick={() => { void perform(confirmation.action) }}>{confirmation.label}</button></div></Modal>}
+    {importConfirmation && <Modal title="Replace this question bank?" onClose={() => decideReplacement(false)}><p className="confirmation-body"><bdi>{importConfirmation.name}</bdi> contains “<bdi>{importConfirmation.incoming.title}</bdi>”, which uses the same bank ID as “<bdi>{importConfirmation.existing.title}</bdi>”. Replace it? Your past results and unfinished quiz will be kept.</p><div className="modal-actions"><button className="button secondary" onClick={() => decideReplacement(false)}>Skip</button><button className="button primary" onClick={() => decideReplacement(true)}>Replace bank</button></div></Modal>}
     {toast && <div className="toast" role="status"><span className="toast-check"><Icon name="check" size={16} /></span>{toast}<button className="icon-button" aria-label="Dismiss notification" onClick={() => setToast(null)}><Icon name="close" size={15} /></button></div>}
-    {dragging && !setup && !confirmation && !help && <div className="drop-overlay"><div><Icon name="upload" size={40} /><h2>Make room for something new.</h2><p>Drop your JSON question bank here.</p><span>One file · up to 10 MiB</span></div></div>}
+    {dragging && !busy && !setup && !confirmation && !importConfirmation && !help && <div className="drop-overlay"><div><Icon name="upload" size={40} /><h2>Make room for something new.</h2><p>Drop your JSON question banks here.</p><span>One or more files · up to 10 MiB each</span></div></div>}
   </div>
 }
 

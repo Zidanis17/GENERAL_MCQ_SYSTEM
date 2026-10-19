@@ -3,7 +3,7 @@ import type { AppUpdateState } from '../shared/updates'
 import type { Result } from '../shared/model'
 import { Icon, Modal } from './components'
 
-export function AppUpdates() {
+export function AppUpdates({ disabled = false }: { disabled?: boolean }) {
   const [state, setState] = useState<AppUpdateState | null>(null)
   const [open, setOpen] = useState(false)
   const [confirmRestart, setConfirmRestart] = useState(false)
@@ -28,7 +28,7 @@ export function AppUpdates() {
     ready: `Version ${state.availableVersion} is ready`, installing: 'Saving progress and restarting…', error: 'Let’s try again'
   })[state.phase]
   return <>
-    <button className={`nav-item help-button ${state?.phase === 'ready' ? 'update-ready' : ''}`} onClick={() => setOpen(true)}><Icon name="update" size={18} />{state?.phase === 'ready' ? 'Update ready' : 'App updates'}{state?.phase === 'ready' && <span className="update-dot" />}</button>
+    <button className={`nav-item help-button ${state?.phase === 'ready' ? 'update-ready' : ''}`} disabled={disabled} onClick={() => setOpen(true)}><Icon name="update" size={18} />{state?.phase === 'ready' ? 'Update ready' : 'App updates'}{state?.phase === 'ready' && <span className="update-dot" />}</button>
     {open && <Modal title="App updates" onClose={() => { setOpen(false); setConfirmRestart(false) }} busy={state?.phase === 'installing'}>
       <div className="update-content"><span className="large-symbol"><Icon name="update" size={29} /></span><h3>{heading}</h3>{state && <p className="update-version">MCQ Studio · Version {state.currentVersion}</p>}
         <p>{state?.message || (state?.phase === 'ready' ? 'Restart when you’re ready. Your question banks, progress, and history will be kept.' : state?.phase === 'downloading' ? 'You can keep studying while the update downloads. We’ll wait for you to choose when to restart.' : state?.phase === 'disabled' ? '' : 'The installed app checks automatically and downloads updates in the background. You choose when to restart.')}</p>

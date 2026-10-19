@@ -87,10 +87,11 @@ export const startSchema = z.object({
 })
 export type StartConfig = z.infer<typeof startSchema>
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string }
+export type BankImportResult = { name: string; result: Result<QuestionBank> }
 export type LoadedState = { state: AppState; notice: string | null }
 export interface StudioAPI {
   load(): Promise<Result<LoadedState>>
-  chooseBank(): Promise<Result<QuestionBank | null>>
+  chooseBanks(): Promise<Result<BankImportResult[] | null>>
   parseBank(raw: string): Promise<Result<QuestionBank>>
   saveBank(bank: QuestionBank, replace: boolean): Promise<Result<AppState>>
   removeBank(id: string): Promise<Result<AppState>>

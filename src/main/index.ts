@@ -3,7 +3,8 @@ import { existsSync, promises as fs } from 'node:fs'
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { z } from 'zod'
-import { bankSchema, formatValidation, MAX_IMPORT_BYTES, parseBank, startSchema, type Result } from '../shared/model'
+import { bankSchema, formatValidation, parseBank, startSchema, type Result } from '../shared/model'
+import { readBankFiles } from './import-banks'
 import example from '../../examples/general-knowledge.json'
 import { StateStore } from './store'
 import electronUpdater from 'electron-updater'
@@ -98,12 +99,10 @@ function registerHandlers(): void {
   handle('checkForUpdates', () => updates.check())
   handle('installUpdate', () => updates.install())
   handle('load', async () => ({ state: await store.expireIfNeeded(), notice: store.notice }))
-  handle('chooseBank', async () => {
-    const result = await dialog.showOpenDialog(window!, { title: 'Import a question bank', properties: ['openFile'], filters: [{ name: 'Question bank (JSON)', extensions: ['json'] }] })
-    if (result.canceled || !result.filePaths[0]) return null
-    const path = result.filePaths[0]
-    if ((await fs.stat(path)).size > MAX_IMPORT_BYTES) throw new Error('This file exceeds the 10 MiB limit.')
-    return parseBank(await fs.readFile(path, 'utf8'))
+  handle('chooseBanks', async () => {
+    const result = await dialog.showOpenDialog(window!, { title: 'Import question banks', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Question banks (JSON)', extensions: ['json'] }] })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return readBankFiles(result.filePaths)
   })
   handle('parseBank', (raw) => parseBank(z.string().parse(raw)))
   handle('saveBank', (bank, replace) => store.saveBank(bankSchema.parse(bank), z.boolean().parse(replace)))

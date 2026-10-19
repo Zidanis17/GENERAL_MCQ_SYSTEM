@@ -29,6 +29,18 @@ async function choose(name: string) {
   await expect(radio).toBeEnabled()
 }
 async function finish() { await page.getByRole('button', { name: 'Submit quiz', exact: true }).click(); await page.getByRole('dialog').getByRole('button', { name: 'Submit quiz', exact: true }).click(); await expect(page.getByRole('heading', { name: 'Session complete.' })).toBeVisible() }
+async function dropFiles(files: { name: string; raw: string }[]) {
+  await page.evaluate((files) => {
+    const dataTransfer = new DataTransfer()
+    for (const { name, raw } of files) dataTransfer.items.add(new File([raw], name, { type: 'application/json' }))
+    document.querySelector('.app')!.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer }))
+  }, files)
+}
+async function writeBank(name: string, changes: Partial<typeof fixture> = {}) {
+  const path = join(directory, name)
+  await fs.writeFile(path, JSON.stringify({ ...fixture, ...changes }))
+  return path
+}
 
 test.beforeEach(async () => {
   directory = await fs.mkdtemp(join(tmpdir(), 'mcq-studio-e2e-'))
@@ -150,6 +162,150 @@ test('invalid imports explain the problem without adding a bank', async () => {
   await expect(page.getByRole('alert')).toContainText('10 MiB')
 })
 
+test('multiple dropped banks remain separate and persist after restarting', async ({}, testInfo) => {
+  const banks = [fixture, { ...fixture, id: 'second', title: 'Second bank' }, { ...fixture, id: 'third', title: 'Third bank' }]
+  await dropFiles(banks.map((bank, index) => ({ name: `bank-${index}.json`, raw: JSON.stringify(bank) })))
+  const summary = page.getByLabel('Import results')
+  await expect(summary).toContainText('3 added · 0 replaced · 0 skipped · 0 failed')
+  await expect(page.locator('.bank-card')).toHaveCount(3)
+  await page.screenshot({ path: testInfo.outputPath('multiple-banks.png') })
+  await application!.close(); application = undefined; await launch()
+  for (const bank of banks) await expect(page.getByRole('heading', { name: bank.title, exact: true })).toBeVisible()
+  const loaded = await page.evaluate(() => window.studio.load())
+  expect(loaded.ok && loaded.value.state.banks.every(({ bank }) => bank.questions.length === 2)).toBe(true)
+})
+
+test('multiple input files save valid banks and name every failed file', async () => {
+  const second = await writeBank('second.json', { id: 'second', title: 'Second bank' })
+  const malformed = join(directory, 'malformed.json'); await fs.writeFile(malformed, '{')
+  const unsupported = await writeBank('unsupported.json', { schemaVersion: 2 })
+  const oversized = join(directory, 'oversized.json'); await fs.writeFile(oversized, ' '.repeat(10 * 1024 * 1024 + 1))
+  const selection = [bankFile, malformed, unsupported, oversized, second]
+  await page.getByTestId('file-input').setInputFiles(selection)
+  const summary = page.getByRole('alert', { name: 'Import results' })
+  await expect(summary).toContainText('2 added · 0 replaced · 0 skipped · 3 failed')
+  await expect(summary).toContainText('malformed.json: This file is not valid JSON')
+  await expect(summary).toContainText('unsupported.json: schemaVersion')
+  await expect(summary).toContainText('oversized.json: This file exceeds the 10 MiB limit')
+  await expect(page.locator('.bank-card')).toHaveCount(2)
+  // The input is reset after every selection, including partially failed imports.
+  await page.getByTestId('file-input').setInputFiles(selection)
+  await page.getByRole('button', { name: 'Skip', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('second.json')
+  await page.getByRole('button', { name: 'Skip', exact: true }).click()
+  await expect(summary).toContainText('0 added · 0 replaced · 2 skipped · 3 failed')
+  await page.getByRole('button', { name: 'Dismiss import results' }).click()
+  await expect(summary).toHaveCount(0)
+  await expect(page.locator('.bank-card')).toHaveCount(2)
+})
+
+test('native picker enables multiple selections and continues past unreadable files; cancellation keeps the results', async () => {
+  const second = await writeBank('second.json', { id: 'second', title: 'Second native bank' })
+  const malformed = join(directory, 'broken.json'); await fs.writeFile(malformed, '{')
+  const paths = [bankFile, join(directory, 'missing.json'), malformed, second]
+  await application!.evaluate(({ dialog }, paths) => {
+    dialog.showOpenDialog = async (_window, options?) => {
+      ;(globalThis as any).__bankDialogOptions = options
+      return { canceled: false, filePaths: paths }
+    }
+  }, paths)
+  await page.getByRole('button', { name: 'Import question banks', exact: true }).click()
+  const summary = page.getByLabel('Import results')
+  await expect(summary).toContainText('2 added · 0 replaced · 0 skipped · 2 failed')
+  await expect(summary).toContainText('missing.json: This file could not be read')
+  await expect(summary).toContainText('broken.json: This file is not valid JSON')
+  expect(await application!.evaluate(() => (globalThis as any).__bankDialogOptions.properties)).toEqual(['openFile', 'multiSelections'])
+  await application!.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] }) })
+  const previous = await summary.textContent()
+  await page.getByRole('button', { name: 'Import question banks', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Import question banks', exact: true })).toBeEnabled()
+  expect(await summary.textContent()).toBe(previous)
+  await expect(page.locator('.bank-card')).toHaveCount(2)
+  expect(await page.evaluate(() => window.studio.chooseBanks())).toEqual({ ok: true, value: null })
+})
+
+test('batch duplicates offer Replace, Skip, Escape, and Close, ignore overlapping drops, and continue in order', async ({}, testInfo) => {
+  const replacement = await writeBank('replace.json', { title: 'Replacement bank' })
+  const skip = await writeBank('skip.json', { title: 'Skipped bank' })
+  const escape = await writeBank('escape.json', { title: 'Escape bank' })
+  const close = await writeBank('close.json', { title: 'Closed bank' })
+  const last = await writeBank('last.json', { id: 'last', title: 'Last bank' })
+  await page.getByTestId('file-input').setInputFiles([bankFile, replacement, skip, escape, close, last])
+  const dialog = page.getByRole('dialog', { name: 'Replace this question bank?' })
+  await expect(dialog).toContainText('replace.json')
+  await expect(page.getByLabel('Import progress')).toContainText('Importing file 2 of 6')
+  await expect(page.getByRole('button', { name: 'Import question banks', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Start studying' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: `Delete ${fixture.title}` })).toBeDisabled()
+  await dropFiles([{ name: 'overlap.json', raw: JSON.stringify({ ...fixture, id: 'overlap', title: 'Overlapping bank' }) }])
+  await expect(dialog).toContainText('replace.json')
+  await page.screenshot({ path: testInfo.outputPath('batch-replacement.png') })
+  await dialog.getByRole('button', { name: 'Replace bank', exact: true }).click()
+  await expect(dialog).toContainText('skip.json')
+  await expect(dialog).toContainText('Replacement bank')
+  await dialog.getByRole('button', { name: 'Skip', exact: true }).click()
+  await expect(dialog).toContainText('escape.json')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toContainText('close.json')
+  await dialog.getByRole('button', { name: 'Close dialog' }).click()
+  await expect(page.getByLabel('Import results')).toContainText('2 added · 1 replaced · 3 skipped · 0 failed')
+  await expect(page.locator('.bank-card')).toHaveCount(2)
+  await expect(page.getByRole('heading', { name: 'Replacement bank', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Last bank', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Overlapping bank', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Import question banks', exact: true })).toBeEnabled()
+})
+
+test('batch replacements preserve both completed results and the unfinished quiz snapshot', async () => {
+  await importFile(); await setup(); await page.getByRole('button', { name: 'Start practice', exact: true }).click()
+  await choose('B Mars'); await finish()
+  await page.getByRole('navigation').getByRole('button', { name: /Library/ }).click()
+  await setup(); await page.getByRole('button', { name: 'Start practice', exact: true }).click(); await choose('A Venus')
+  await page.getByRole('button', { name: /Back to library/ }).click()
+  const before = await page.evaluate(() => window.studio.load())
+  if (!before.ok) throw new Error(before.error)
+  const updated = await writeBank('updated.json', { title: 'Updated bank', questions: [{ ...fixture.questions[0], prompt: 'Changed question' }] })
+  const second = await writeBank('second.json', { id: 'second', title: 'Second bank' })
+  await page.getByTestId('file-input').setInputFiles([updated, second])
+  await page.getByRole('button', { name: 'Replace bank', exact: true }).click()
+  await expect(page.getByLabel('Import results')).toContainText('1 added · 1 replaced · 0 skipped · 0 failed')
+  const after = await page.evaluate(() => window.studio.load())
+  if (!after.ok) throw new Error(after.error)
+  expect(after.value.state.activeSession).toEqual(before.value.state.activeSession)
+  expect(after.value.state.attempts).toEqual(before.value.state.attempts)
+  await page.getByRole('button', { name: 'Resume', exact: true }).click()
+  await expect(page.getByRole('heading', { name: fixture.questions[0].prompt, exact: true })).toBeVisible()
+  await expect(page.getByRole('radio', { name: 'A Venus', exact: true })).toBeChecked()
+})
+
+test('an exam can expire while a batch awaits replacement without losing the prompt or remaining imports', async () => {
+  await importFile(); await setup(); await page.getByRole('button', { name: 'Exam', exact: true }).click()
+  await page.getByRole('spinbutton', { name: 'Time limit', exact: true }).fill('1')
+  await page.getByRole('button', { name: 'Start exam' }).click(); await choose('B Mars')
+  await application!.close(); application = undefined
+  const statePath = join(directory, 'state.json')
+  const state = JSON.parse(await fs.readFile(statePath, 'utf8'))
+  state.activeSession.deadline = Date.now() + 6000
+  await fs.writeFile(statePath, JSON.stringify(state)); await launch()
+  const updated = { ...fixture, title: 'Updated bank', questions: [{ ...fixture.questions[0], prompt: 'Changed question' }] }
+  await dropFiles([
+    { name: 'updated.json', raw: JSON.stringify(updated) },
+    { name: 'next.json', raw: JSON.stringify({ ...fixture, id: 'next', title: 'Next bank' }) }
+  ])
+  const dialog = page.getByRole('dialog', { name: 'Replace this question bank?' })
+  await expect(dialog).toBeVisible()
+  await expect.poll(async () => JSON.parse(await fs.readFile(statePath, 'utf8')).attempts.length).toBe(1)
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Replace bank', exact: true }).click()
+  await expect(page.getByLabel('Import results')).toContainText('1 added · 1 replaced · 0 skipped · 0 failed')
+  const saved = JSON.parse(await fs.readFile(statePath, 'utf8'))
+  expect(saved.activeSession).toBeNull()
+  expect(saved.attempts[0].reason).toBe('expired')
+  expect(saved.attempts[0].session.questions).toEqual(fixture.questions)
+  expect(saved.attempts[0].session.answers).toEqual({ [fixture.questions[0].id]: 'b' })
+  expect(saved.banks).toHaveLength(2)
+})
+
 test('app updates show the real version and explain unavailable updates without blocking study', async () => {
   await page.getByRole('button', { name: 'App updates', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'App updates' })
@@ -167,7 +323,7 @@ test('app updates show the real version and explain unavailable updates without 
 
 test('native import, example export, offline restrictions and Unicode plain text', async () => {
   await application!.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }) }, bankFile)
-  await page.getByRole('button', { name: 'Import question bank', exact: true }).click()
+  await page.getByRole('button', { name: 'Import question banks', exact: true }).click()
   await expect(page.getByRole('heading', { name: fixture.title, exact: true })).toBeVisible()
   const exported = join(directory, 'exported-example.json')
   await application!.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }) }, exported)

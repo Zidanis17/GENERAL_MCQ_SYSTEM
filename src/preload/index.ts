@@ -4,7 +4,7 @@ import type { AppUpdateState } from '../shared/updates'
 
 const api: StudioAPI = {
   load: () => ipcRenderer.invoke('studio:load'),
-  chooseBank: () => ipcRenderer.invoke('studio:chooseBank'),
+  chooseBanks: () => ipcRenderer.invoke('studio:chooseBanks'),
   parseBank: (raw) => ipcRenderer.invoke('studio:parseBank', raw),
   saveBank: (bank, replace) => ipcRenderer.invoke('studio:saveBank', bank, replace),
   removeBank: (id) => ipcRenderer.invoke('studio:removeBank', id),
