@@ -1,6 +1,6 @@
 {
   "name": "mcq-studio",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A quiet place to practice. Offline question banks, exams, and progress.",
   "author": "MCQ Studio",
   "license": "MIT",
@@ -22,6 +22,7 @@
     "deliver": "node scripts/deliver.mjs"
   },
   "dependencies": {
+    "electron-store": "12.0.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "zod": "4.6.7"
@@ -42,12 +43,32 @@
   "build": {
     "appId": "com.mcqstudio.desktop",
     "productName": "MCQ Studio",
-    "directories": { "output": "release", "buildResources": "build" },
-    "files": ["out/**/*", "build/icon.png", "package.json"],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
     "asar": true,
     "electronDist": "node_modules/electron/dist",
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }, { "target": "portable", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.ico",
       "signExecutable": false
     },
@@ -60,6 +81,9 @@
       "createDesktopShortcut": true,
       "deleteAppDataOnUninstall": false
     },
-    "portable": { "artifactName": "MCQ-Studio-Portable-${version}.exe", "requestExecutionLevel": "user" }
+    "portable": {
+      "artifactName": "MCQ-Studio-Portable-${version}.exe",
+      "requestExecutionLevel": "user"
+    }
   }
 }

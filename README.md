@@ -27,4 +27,6 @@ The `src/shared` model owns import validation, types, shuffling, and scoring. `s
 
 Saved production data lives in `%APPDATA%\MCQ Studio`; development uses `%APPDATA%\MCQ Studio Development`. Tests set `MCQ_STUDIO_DATA_DIR` to temporary folders. Do not point tests at real data. The Windows portable and installed editions share production data.
 
+Persistence uses `electron-store` in the main process for JSON reads and atomic writes. It opens the existing `state.json` and `state.backup.json` filenames with the same root structure, so banks, history, and unfinished sessions from earlier versions continue to work. A small wrapper validates saved data, keeps the previous state as a backup, and preserves damaged files before recovery. No storage package runs in the renderer or preload.
+
 See [FORMAT.md](FORMAT.md) for the versioned JSON contract and [USAGE.md](USAGE.md) for the user guide.

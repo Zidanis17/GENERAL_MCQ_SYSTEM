@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
+import Store from 'electron-store'
+import { z } from 'zod'
 import {
   bankSchema, emptyState, selectedAnswer, shuffled, startSchema, stateSchema, summarize,
   type AppState, type QuestionBank, type QuizSession, type StartConfig
@@ -9,6 +11,8 @@ import {
 export class StateStore {
   private state: AppState = emptyState()
   private tail: Promise<void> = Promise.resolve()
+  private storage!: Store<AppState>
+  private backupStorage!: Store<AppState>
   notice: string | null = null
   readonly primary: string
   readonly backup: string
@@ -19,42 +23,49 @@ export class StateStore {
   }
 
   async initialize(): Promise<void> {
-    await fs.mkdir(this.directory, { recursive: true })
-    const primary = await this.readFile(this.primary)
-    if (primary) { this.state = primary; return }
-    const backup = await this.readFile(this.backup)
-    if (backup) {
-      this.state = backup
+    this.storage = await this.openStore('state')
+    this.backupStorage = await this.openStore('state.backup')
+    const primary = this.storage.store
+    const backup = this.backupStorage.store
+    const hasPrimary = Object.keys(primary).length > 0
+    const hasBackup = Object.keys(backup).length > 0
+    if (hasPrimary) {
+      this.state = stateSchema.parse(primary)
+    } else if (hasBackup) {
+      this.state = stateSchema.parse(backup)
       this.notice = 'Your saved data was recovered from a backup. The damaged file, if any, has been kept in the application data folder.'
     } else if (this.notice) {
       this.notice = 'Your saved data could not be read. Damaged files have been preserved in the application data folder. A fresh library is ready to use.'
     }
-    await this.persist(this.state)
+    if (!hasPrimary) this.storage.store = this.state
+    if (!hasBackup) this.backupStorage.store = this.state
   }
 
-  private async readFile(path: string): Promise<AppState | null> {
-    let raw: string
-    try { raw = await fs.readFile(path, 'utf8') } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
-      throw error
-    }
-    try { return stateSchema.parse(JSON.parse(raw)) } catch {
+  private async openStore(name: string): Promise<Store<AppState>> {
+    const open = () => new Store<AppState>({
+      cwd: this.directory,
+      name,
+      accessPropertiesByDotNotation: false,
+      clearInvalidConfig: false,
+      serialize: (value) => JSON.stringify(value),
+      deserialize: (raw) => stateSchema.parse(JSON.parse(raw))
+    })
+    try { return open() } catch (error) {
+      // Preserve damaged files before opening a fresh store. Disk/permission
+      // errors must propagate rather than being treated as corrupt data.
+      if (!(error instanceof SyntaxError || error instanceof z.ZodError)) throw error
+      const path = join(this.directory, `${name}.json`)
       await fs.rename(path, `${path}.corrupt-${this.now()}-${randomUUID().slice(0, 6)}`)
-      this.notice = 'A saved data file was damaged.'
-      return null
+      this.notice = 'A damaged saved data file was preserved. Your available library and progress were kept.'
+      return open()
     }
   }
 
-  private async persist(state: AppState): Promise<void> {
-    const temp = `${this.primary}.tmp`
-    await fs.writeFile(temp, JSON.stringify(state), 'utf8')
-    const handle = await fs.open(temp, 'r+')
-    try { await handle.sync() } finally { await handle.close() }
-    try {
-      await fs.copyFile(this.primary, `${this.backup}.tmp`)
-      await fs.rename(`${this.backup}.tmp`, this.backup)
-    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
-    await fs.rename(temp, this.primary)
+  private persist(state: AppState): void {
+    // Each assignment is one atomic electron-store write, retaining the same
+    // filenames and root shape used by earlier versions of MCQ Studio.
+    this.backupStorage.store = this.state
+    this.storage.store = state
   }
 
   snapshot(): AppState { return structuredClone(this.state) }
@@ -66,7 +77,7 @@ export class StateStore {
       const changed = change(draft)
       if (changed !== false) {
         stateSchema.parse(draft)
-        await this.persist(draft)
+        this.persist(draft)
         this.state = draft
       }
       return this.snapshot()

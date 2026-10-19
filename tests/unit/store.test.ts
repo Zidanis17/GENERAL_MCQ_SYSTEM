@@ -15,6 +15,37 @@ beforeEach(async () => { directory = await fs.mkdtemp(join(tmpdir(), 'mcq-studio
 afterEach(async () => { await store.flush(); if (!basename(directory).startsWith('mcq-studio-unit-')) throw new Error('Unexpected test directory'); await fs.rm(directory, { recursive: true, force: true }) })
 
 describe('bank and session storage', () => {
+  it('opens existing plain JSON banks, history and progress without changing their format', async () => {
+    await store.start(config()); await store.answer('mars', 'b'); await store.submit()
+    await store.start(config()); await store.answer('water', 'c'); await store.navigate(1)
+    const expected = store.snapshot()
+    const legacyJSON = JSON.stringify(expected)
+    await fs.writeFile(store.primary, legacyJSON)
+    await fs.writeFile(store.backup, legacyJSON)
+    const reopened = new StateStore(directory); await reopened.initialize()
+    expect(reopened.snapshot()).toEqual(expected)
+    expect(await fs.readFile(store.primary, 'utf8')).toBe(legacyJSON)
+    expect(await fs.readdir(directory)).not.toContain('config.json')
+    await reopened.answer('mars', 'a')
+    const saved = JSON.parse(await fs.readFile(store.primary, 'utf8'))
+    expect(saved.activeSession.answers).toEqual({ water: 'c', mars: 'a' })
+    expect(saved.attempts).toHaveLength(1)
+    expect(JSON.parse(await fs.readFile(store.backup, 'utf8'))).toEqual(expected)
+  })
+
+  it('keeps the previous state on write failure and permits a later retry', async () => {
+    const expected = store.snapshot()
+    const preserved = `${store.primary}.preserved`
+    await fs.rename(store.primary, preserved)
+    await fs.mkdir(store.primary)
+    await expect(store.saveBank({ ...bank, id: 'new-bank' }, false)).rejects.toThrow()
+    expect(store.snapshot()).toEqual(expected)
+    await fs.rmdir(store.primary)
+    await fs.rename(preserved, store.primary)
+    await store.saveBank({ ...bank, id: 'new-bank' }, false)
+    expect(store.snapshot().banks).toHaveLength(2)
+  })
+
   it('persists imported banks and a resumed session with exact question order and checked state', async () => {
     await store.start(config({ shuffleQuestions: true, shuffleOptions: true }))
     const q = store.snapshot().activeSession!.questions[0]
@@ -114,6 +145,15 @@ describe('practice, exams, expiry, and retries', () => {
 })
 
 describe('recovery', () => {
+  it('preserves an invalid backup and rebuilds it from a valid primary', async () => {
+    const expected = store.snapshot()
+    await fs.writeFile(store.backup, 'broken JSON')
+    const recovered = new StateStore(directory); await recovered.initialize()
+    expect(recovered.snapshot()).toEqual(expected)
+    expect(JSON.parse(await fs.readFile(store.backup, 'utf8'))).toEqual(expected)
+    expect((await fs.readdir(directory)).some((name) => name.startsWith('state.backup.json.corrupt-'))).toBe(true)
+  })
+
   it('recovers a backup and preserves the corrupt primary', async () => {
     await store.start(config()); await fs.writeFile(store.primary, 'broken JSON')
     const recovered = new StateStore(directory); await recovered.initialize()

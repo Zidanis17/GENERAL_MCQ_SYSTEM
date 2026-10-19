@@ -1,12 +1,13 @@
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { chromium, expect } from '@playwright/test'
 
-const executable = resolve(process.argv[2] || 'release/MCQ-Studio-Portable-1.0.0.exe')
+const { version } = JSON.parse(await readFile('package.json', 'utf8'))
+const executable = resolve(process.argv[2] || `release/MCQ-Studio-Portable-${version}.exe`)
 const directory = await mkdtemp(join(tmpdir(), 'mcq-studio-portable-'))
 const env = { ...process.env, MCQ_STUDIO_DATA_DIR: directory }
 delete env.ELECTRON_RUN_AS_NODE
