@@ -45,10 +45,27 @@ foreach ($name in $names) {
     $asset = @($remote.assets | Where-Object name -eq $name)
     if ($asset.Count -ne 1 -or $asset[0].size -ne (Get-Item -LiteralPath (Join-Path $artifactRoot $name)).Length) { throw "The uploaded asset is missing or incomplete: $name" }
 }
-if ($Publish) {
-    & gh release edit $tag --repo $repository --draft=false --latest
-    if ($LASTEXITCODE -ne 0) { throw 'Could not publish the verified release.' }
-    Write-Output "Published $tag with all four verified release files."
-} else {
-    Write-Output "Uploaded all four verified release files. Publish the $tag draft when ready."
+$downloadRoot = "https://github.com/$repository/releases/download/$tag"
+$notes = @"
+## Download MCQ Studio for Windows
+
+- **[Download the installer (.exe)]($downloadRoot/$($names[0]))** - Recommended. Installs the app and supports automatic updates.
+- **[Download the portable app (.exe)]($downloadRoot/$($names[1]))** - Run without installing. Download new versions manually.
+
+Windows 10/11, 64-bit. Practice and exams work offline; no Node.js or development server is needed.
+"@
+$notesFile = [IO.Path]::GetTempFileName()
+try {
+    Set-Content -LiteralPath $notesFile -Value $notes -Encoding UTF8
+    if ($Publish) {
+        & gh release edit $tag --repo $repository --notes-file $notesFile --draft=false --latest
+        if ($LASTEXITCODE -ne 0) { throw 'Could not publish the verified release.' }
+        Write-Output "Published $tag with all four verified release files and executable download links."
+    } else {
+        & gh release edit $tag --repo $repository --notes-file $notesFile
+        if ($LASTEXITCODE -ne 0) { throw 'Could not add executable download links to the draft release.' }
+        Write-Output "Uploaded all four verified release files. Publish the $tag draft when ready."
+    }
+} finally {
+    Remove-Item -LiteralPath $notesFile -Force
 }
