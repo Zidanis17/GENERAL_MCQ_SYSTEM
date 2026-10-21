@@ -59,6 +59,12 @@ $notes = @"
 
 Windows 10/11, 64-bit. Practice and exams work offline; no Node.js or development server is needed.
 "@
+$changelogPath = Join-Path $PSScriptRoot '../CHANGELOG.md'
+if (Test-Path -LiteralPath $changelogPath) {
+    $changelog = Get-Content -LiteralPath $changelogPath -Raw -Encoding UTF8
+    $section = [regex]::Match($changelog, "(?ms)^## \[$([regex]::Escape($version))\][^\r\n]*\r?\n(.*?)(?=^## \[|\z)")
+    if ($section.Success) { $notes += "`n`n## What's new`n`n" + $section.Groups[1].Value.Trim() }
+}
 $notesFile = [IO.Path]::GetTempFileName()
 try {
     [IO.File]::WriteAllText($notesFile, $notes, [Text.UTF8Encoding]::new($false))

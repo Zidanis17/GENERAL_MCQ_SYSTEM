@@ -32,11 +32,41 @@ export const bankSchema = z.object({
 export type Question = z.infer<typeof questionSchema>
 export type QuestionBank = z.infer<typeof bankSchema>
 export const modeSchema = z.enum(['practice', 'exam'])
+export const settingsSchema = z.object({
+  theme: z.enum(['system', 'light', 'dark']),
+  studyTextSize: z.enum(['standard', 'large', 'extra-large']),
+  defaultMode: modeSchema,
+  shuffleQuestions: z.boolean(),
+  shuffleOptions: z.boolean(),
+  timeLimitMinutes: z.number().int().min(1).max(1440).nullable()
+})
+export type AppSettings = z.infer<typeof settingsSchema>
+export const DEFAULT_SETTINGS: AppSettings = {
+  theme: 'system', studyTextSize: 'standard', defaultMode: 'practice',
+  shuffleQuestions: false, shuffleOptions: false, timeLimitMinutes: null
+}
+const mixSourcesSchema = z.array(z.object({ bank: bankSchema, questionCount: z.number().int().positive() }))
+  .min(2, 'Select at least two question banks').superRefine((sources, ctx) => {
+    const ids = new Set<string>()
+    sources.forEach(({ bank, questionCount }, index) => {
+      if (ids.has(bank.id)) ctx.addIssue({ code: 'custom', path: [index, 'bank', 'id'], message: 'A bank can only appear once in a mix' })
+      if (questionCount > bank.questions.length) ctx.addIssue({ code: 'custom', path: [index, 'questionCount'], message: 'Count exceeds the available questions' })
+      ids.add(bank.id)
+    })
+  })
+const mixFields = { title: z.string().trim().min(1, 'Give your mix a name'), sources: mixSourcesSchema }
+export const mixDraftSchema = z.object({ id: text.optional(), ...mixFields })
+export const savedMixSchema = z.object({ id: text, ...mixFields })
+export type MixDraft = z.infer<typeof mixDraftSchema>
+export type SavedMix = z.infer<typeof savedMixSchema>
+const questionOriginSchema = z.object({ bankId: text, bankTitle: text, questionId: text })
+export type QuestionOrigin = z.infer<typeof questionOriginSchema>
 export const sessionSchema = z.object({
   id: text,
   bankId: text,
   bankTitle: text,
   questions: questionsSchema,
+  questionOrigins: z.record(z.string(), questionOriginSchema).optional(),
   mode: modeSchema,
   answers: z.record(z.string(), z.string()),
   checkedIds: z.array(z.string()),
@@ -51,6 +81,13 @@ export const sessionSchema = z.object({
   }
   if (new Set(session.checkedIds).size !== session.checkedIds.length || session.checkedIds.some((id) => !Object.hasOwn(session.answers, id))) ctx.addIssue({ code: 'custom', path: ['checkedIds'], message: 'Invalid checked answers' })
   if (session.mode === 'practice' && session.deadline !== null) ctx.addIssue({ code: 'custom', path: ['deadline'], message: 'Practice sessions cannot have a deadline' })
+  if (session.questionOrigins) {
+    const origins = session.questionOrigins
+    if (Object.keys(origins).length !== session.questions.length || session.questions.some((q) => {
+      const origin = Object.hasOwn(origins, q.id) ? origins[q.id] : undefined
+      return !origin || q.id !== mixedQuestionId(origin.bankId, origin.questionId)
+    })) ctx.addIssue({ code: 'custom', path: ['questionOrigins'], message: 'Invalid question origins' })
+  }
 })
 export type QuizSession = z.infer<typeof sessionSchema>
 export const summarySchema = z.object({
@@ -66,15 +103,19 @@ export type Attempt = z.infer<typeof attemptSchema>
 export const stateSchema = z.object({
   version: z.literal(1),
   banks: z.array(z.object({ bank: bankSchema, importedAt: z.number() })),
+  settings: settingsSchema.default(() => ({ ...DEFAULT_SETTINGS })),
+  mixes: z.array(savedMixSchema).default([]),
   activeSession: sessionSchema.nullable(),
   attempts: z.array(attemptSchema)
 }).superRefine((state, ctx) => {
   if (new Set(state.banks.map(({ bank }) => bank.id)).size !== state.banks.length) ctx.addIssue({ code: 'custom', path: ['banks'], message: 'Duplicate bank IDs' })
   if (new Set(state.attempts.map((a) => a.id)).size !== state.attempts.length) ctx.addIssue({ code: 'custom', path: ['attempts'], message: 'Duplicate attempts' })
+  if (new Set(state.mixes.map((mix) => mix.id)).size !== state.mixes.length) ctx.addIssue({ code: 'custom', path: ['mixes'], message: 'Duplicate mix IDs' })
 })
 export type AppState = z.infer<typeof stateSchema>
 export const sourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('bank'), id: text }),
+  z.object({ kind: z.literal('mix'), id: text }),
   z.object({ kind: z.literal('attempt'), id: text, missedOnly: z.boolean() })
 ])
 export type QuizSource = z.infer<typeof sourceSchema>
@@ -95,6 +136,9 @@ export interface StudioAPI {
   parseBank(raw: string): Promise<Result<QuestionBank>>
   saveBank(bank: QuestionBank, replace: boolean): Promise<Result<AppState>>
   removeBank(id: string): Promise<Result<AppState>>
+  updateSettings(settings: AppSettings): Promise<Result<AppState>>
+  saveMix(mix: MixDraft): Promise<Result<AppState>>
+  removeMix(id: string): Promise<Result<AppState>>
   start(config: StartConfig): Promise<Result<AppState>>
   answer(questionId: string, optionId: string): Promise<Result<AppState>>
   check(questionId: string): Promise<Result<AppState>>
@@ -121,7 +165,21 @@ export function parseBank(raw: string): QuestionBank {
 export function formatValidation(error: z.ZodError): string {
   return error.issues.slice(0, 5).map((issue) => `${issue.path.map((part, i) => typeof part === 'number' ? `[${part}]` : `${i ? '.' : ''}${String(part)}`).join('') || 'File'}: ${issue.message}`).join('\n')
 }
-export function emptyState(): AppState { return { version: 1, banks: [], activeSession: null, attempts: [] } }
+export function emptyState(): AppState { return { version: 1, banks: [], settings: { ...DEFAULT_SETTINGS }, mixes: [], activeSession: null, attempts: [] } }
+export function mixedQuestionId(bankId: string, questionId: string): string { return JSON.stringify([bankId, questionId]) }
+export function sampleMix(mix: SavedMix, random = Math.random): { questions: Question[]; questionOrigins: Record<string, QuestionOrigin> } {
+  const questionOrigins: Record<string, QuestionOrigin> = {}
+  const questions = mix.sources.flatMap(({ bank, questionCount }) => {
+    const indices = shuffled(bank.questions.map((_, index) => index), random).slice(0, questionCount)
+    const selected = new Set(indices)
+    return bank.questions.filter((_, index) => selected.has(index)).map((question) => {
+      const id = mixedQuestionId(bank.id, question.id)
+      questionOrigins[id] = { bankId: bank.id, bankTitle: bank.title, questionId: question.id }
+      return { ...question, id }
+    })
+  })
+  return { questions, questionOrigins }
+}
 export function selectedAnswer(session: QuizSession, id: string): string | undefined { return Object.hasOwn(session.answers, id) ? session.answers[id] : undefined }
 export function summarize(session: QuizSession): Summary {
   const correct = session.questions.filter((q) => selectedAnswer(session, q.id) === q.correctOptionId).length

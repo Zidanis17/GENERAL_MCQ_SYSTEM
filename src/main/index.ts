@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, net, protocol, session } from 'electron'
 import { existsSync, promises as fs } from 'node:fs'
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -30,6 +30,7 @@ else {
   app.whenReady().then(async () => {
     store = new StateStore(app.getPath('userData'))
     await store.initialize()
+    nativeTheme.themeSource = store.snapshot().settings.theme
     await store.expireIfNeeded()
     updates = new UpdateController(
       electronUpdater.autoUpdater,
@@ -68,7 +69,7 @@ else {
 function createWindow(): void {
   window = new BrowserWindow({
     width: 1200, height: 840, minWidth: 880, minHeight: 640,
-    title: 'MCQ Studio', backgroundColor: '#f7f8fa', autoHideMenuBar: true,
+    title: 'MCQ Studio', backgroundColor: nativeTheme.shouldUseDarkColors ? '#111824' : '#f7f8fa', autoHideMenuBar: true,
     icon: join(here, '../../build/icon.png'),
     webPreferences: { preload: join(here, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, spellcheck: false }
   })
@@ -79,6 +80,8 @@ function createWindow(): void {
   else void window.loadURL('app://bundle/index.html')
   window.on('closed', () => { window = null })
 }
+
+nativeTheme.on('updated', () => { window?.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#111824' : '#f7f8fa') })
 
 function handle(channel: string, operation: (...args: any[]) => unknown): void {
   ipcMain.handle(`studio:${channel}`, async (event, ...args): Promise<Result<unknown>> => {
@@ -107,6 +110,13 @@ function registerHandlers(): void {
   handle('parseBank', (raw) => parseBank(z.string().parse(raw)))
   handle('saveBank', (bank, replace) => store.saveBank(bankSchema.parse(bank), z.boolean().parse(replace)))
   handle('removeBank', (id) => store.removeBank(z.string().min(1).parse(id)))
+  handle('updateSettings', async (settings) => {
+    const state = await store.updateSettings(settings)
+    nativeTheme.themeSource = state.settings.theme
+    return state
+  })
+  handle('saveMix', (mix) => store.saveMix(mix))
+  handle('removeMix', (id) => store.removeMix(z.string().min(1).parse(id)))
   handle('start', (config) => store.start(startSchema.parse(config)))
   handle('answer', (id, option) => store.answer(z.string().parse(id), z.string().parse(option)))
   handle('check', (id) => store.check(z.string().parse(id)))

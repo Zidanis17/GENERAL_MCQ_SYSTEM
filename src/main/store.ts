@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import Store from 'electron-store'
 import { z } from 'zod'
 import {
-  bankSchema, emptyState, selectedAnswer, shuffled, startSchema, stateSchema, summarize,
-  type AppState, type QuestionBank, type QuizSession, type StartConfig
+  bankSchema, emptyState, mixDraftSchema, sampleMix, selectedAnswer, settingsSchema, shuffled, startSchema, stateSchema, summarize,
+  type AppSettings, type AppState, type MixDraft, type Question, type QuestionBank, type QuestionOrigin, type QuizSession, type StartConfig
 } from '../shared/model'
 
 export class StateStore {
@@ -101,18 +101,46 @@ export class StateStore {
     return this.transaction((draft) => { draft.banks = draft.banks.filter((entry) => entry.bank.id !== id) })
   }
 
+  updateSettings(input: AppSettings): Promise<AppState> {
+    const settings = settingsSchema.parse(input)
+    return this.transaction((draft) => { draft.settings = settings })
+  }
+
+  saveMix(input: MixDraft): Promise<AppState> {
+    const mix = mixDraftSchema.parse(input)
+    return this.transaction((draft) => {
+      if (mix.id) {
+        const index = draft.mixes.findIndex((entry) => entry.id === mix.id)
+        if (index < 0) throw new Error('This saved mix is no longer available.')
+        draft.mixes[index] = { ...mix, id: mix.id }
+      } else draft.mixes.unshift({ ...mix, id: randomUUID() })
+    })
+  }
+
+  removeMix(id: string): Promise<AppState> {
+    return this.transaction((draft) => { draft.mixes = draft.mixes.filter((mix) => mix.id !== id) })
+  }
+
   start(input: StartConfig): Promise<AppState> {
     const config = startSchema.parse(input)
     return this.transaction((draft) => {
       this.expire(draft)
       if (draft.activeSession && !config.discardActive) throw new Error('You have an unfinished quiz. Resume it or discard it before starting another.')
-      let questions
+      let questions: Question[]
+      let questionOrigins: Record<string, QuestionOrigin> | undefined
       let bankId: string
       let bankTitle: string
       if (config.source.kind === 'bank') {
         const bank = draft.banks.find((entry) => entry.bank.id === config.source.id)?.bank
         if (!bank) throw new Error('This question bank is no longer in your library.')
         questions = bank.questions; bankId = bank.id; bankTitle = bank.title
+      } else if (config.source.kind === 'mix') {
+        const mix = draft.mixes.find((entry) => entry.id === config.source.id)
+        if (!mix) throw new Error('This saved mix is no longer available.')
+        if (config.questionCount !== mix.sources.reduce((sum, source) => sum + source.questionCount, 0)) throw new Error('The question count must match the saved mix. Edit the mix to change its counts.')
+        const sample = sampleMix(mix)
+        questions = sample.questions; questionOrigins = sample.questionOrigins
+        bankId = mix.id; bankTitle = mix.title
       } else {
         const attempt = draft.attempts.find((entry) => entry.id === config.source.id)
         if (!attempt) throw new Error('This result is no longer available.')
@@ -120,6 +148,7 @@ export class StateStore {
           ? attempt.session.questions.filter((q) => selectedAnswer(attempt.session, q.id) !== q.correctOptionId)
           : attempt.session.questions
         bankId = attempt.session.bankId; bankTitle = attempt.session.bankTitle
+        questionOrigins = attempt.session.questionOrigins
       }
       if (config.questionCount > questions.length) throw new Error('The question count exceeds the available questions.')
       const chosen = (config.shuffleQuestions ? shuffled(questions) : questions).slice(0, config.questionCount)
@@ -127,6 +156,7 @@ export class StateStore {
       draft.activeSession = {
         id: randomUUID(), bankId, bankTitle,
         questions: chosen.map((q) => ({ ...q, options: config.shuffleOptions ? shuffled(q.options) : [...q.options] })),
+        ...(questionOrigins ? { questionOrigins: Object.fromEntries(chosen.map((q) => [q.id, questionOrigins![q.id]])) } : {}),
         mode: config.mode, answers: {}, checkedIds: [], currentIndex: 0, startedAt,
         deadline: config.mode === 'exam' && config.timeLimitMinutes !== null ? startedAt + config.timeLimitMinutes * 60_000 : null
       }

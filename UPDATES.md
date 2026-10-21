@@ -14,7 +14,7 @@ Download the **Setup** executable from that GitHub release and distribute it. Us
 
 ## Later releases
 
-Commit your app changes, then run:
+Update `CHANGELOG.md` with a `## [version]` section for the new version, commit your app changes, then run:
 
 ```powershell
 npm version patch

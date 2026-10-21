@@ -15,6 +15,27 @@ For your own files, see **File format.md**, or open **File format & help** in th
 
 When a bank ID already exists, including one imported earlier in the same batch, choose **Replace bank** or **Skip** for that file. Closing the prompt or pressing Escape also skips it and continues. Replacing or removing a bank keeps saved results and the unfinished session.
 
+## Settings
+
+Open **Settings** in the sidebar. Changes save automatically on this device.
+
+- Choose **Light**, **Dark**, or **System**. System follows your Windows appearance.
+- Choose **Standard**, **Large**, or **Extra large** study text. Questions, answer choices, and explanations change together.
+- Set defaults for practice/exam mode, question order, answer-choice order, and an optional exam time limit. Leave the time limit blank for no limit, or enter 1–1440 minutes and press Enter or leave the field to save it.
+- New session setup uses these defaults, and you can adjust them for that session. Changing defaults does not change an unfinished session. **Reset settings** restores System appearance, Standard text, practice mode, no shuffling, and no timer.
+
+## Combine banks into a saved mix
+
+1. Import at least two question banks, then select **Create mix** under **Saved mixes** in the Library.
+2. Name your mix, select two or more banks, and choose a positive question count from each. The total is shown as you edit.
+3. Select **Save mix**, then **Start mix**. Choose practice or exam and adjust the shuffling and timer settings. Edit the saved mix to change its question counts.
+
+Each saved mix keeps frozen copies of the complete selected banks. Replacing or deleting library banks does not change a saved mix. Every new mix session draws the requested count randomly from each frozen bank, without repeating a question from that bank. With question shuffling off, sampled questions follow their original order, grouped by the order in your mix; with it on, questions from all banks are shuffled together.
+
+Questions and result reviews show the source bank. Questions from different banks remain separate even if they have the same ID or wording. Resuming a session or retrying a result uses its saved questions; starting the saved mix again makes a fresh draw.
+
+Use the pencil button to edit a mix's name, counts, or banks. Existing selected banks retain their frozen copies. To update a copy from your library, remove it in the editor and select it again. The trash button deletes the saved mix after confirmation, while keeping results and any unfinished session. Frozen copies take space in your saved data, so include that folder in backups.
+
 ## Your saved data
 
 The portable and installed editions share `%APPDATA%\MCQ Studio`. Imported banks and progress stay on this computer. Copy that folder while the app is closed if you want a manual backup. Automatic writes maintain a previous good copy; if damaged saved data is detected, the app recovers from it when possible and keeps damaged files for recovery.

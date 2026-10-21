@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import type { QuizSource, StartConfig } from '../shared/model'
+import type { AppSettings, QuizSource, StartConfig } from '../shared/model'
 
 export function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
+    settings: <><path d="m9 3-1 3-3 1-2 3 2 2-1 3 3 2 3-1 2 3 3-1 1-3 3-1 1-3-2-2 1-3-3-2-3 1-2-3z" /><circle cx="12" cy="11" r="3" /></>,
+    sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" /></>,
+    moon: <path d="M20 14a8 8 0 0 1-10-10 8.5 8.5 0 1 0 10 10Z" />,
+    monitor: <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></>,
+    mix: <><path d="M3 6h3c5 0 7 12 12 12h3m-4-4 4 4-4 4M3 18h3c2 0 3-2 4-4m4-4c1-2 2-4 4-4h3m-4-4 4 4-4 4" /></>,
+    edit: <><path d="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14z" /></>,
     update: <><path d="M20 7a9 9 0 0 0-15-1L3 9m0-6v6h6M4 17a9 9 0 0 0 15 1l2-3m0 6v-6h-6" /></>,
     library: <><rect x="3" y="4" width="7" height="16" rx="1.5" /><path d="M6.5 8v8M14 5l4-1 4 15-4 1z" /></>,
     history: <><path d="M3 10a9 9 0 1 1 1 7M3 4v6h6M12 7v5l3 2" /></>,
@@ -38,21 +44,22 @@ export function Modal({ title, children, onClose, busy = false, wide = false }: 
   </dialog>
 }
 
-export type Setup = { source: QuizSource; title: string; count: number }
-export function SetupDialog({ setup, busy, onClose, onStart }: { setup: Setup; busy: boolean; onClose: () => void; onStart: (config: StartConfig) => void }) {
-  const [mode, setMode] = useState<'practice' | 'exam'>('practice')
+export type Setup = { source: QuizSource; title: string; count: number; sources?: { title: string; count: number }[] }
+export function SetupDialog({ setup, settings, busy, onClose, onStart }: { setup: Setup; settings: AppSettings; busy: boolean; onClose: () => void; onStart: (config: StartConfig) => void }) {
+  const [mode, setMode] = useState<'practice' | 'exam'>(settings.defaultMode)
   const [count, setCount] = useState(setup.count)
-  const [shuffleQuestions, setShuffleQuestions] = useState(false)
-  const [shuffleOptions, setShuffleOptions] = useState(false)
-  const [timer, setTimer] = useState('')
+  const [shuffleQuestions, setShuffleQuestions] = useState(settings.shuffleQuestions)
+  const [shuffleOptions, setShuffleOptions] = useState(settings.shuffleOptions)
+  const [timer, setTimer] = useState(settings.timeLimitMinutes?.toString() ?? '')
   return <Modal title="Make this session yours" onClose={onClose} busy={busy}>
     <p className="setup-bank" dir="auto">{setup.title}</p>
+    {setup.sources && <ul className="mix-sources setup-sources">{setup.sources.map((source, index) => <li key={index}><bdi>{source.title}</bdi><span>{source.count}</span></li>)}</ul>}
     <form onSubmit={(e) => { e.preventDefault(); onStart({ source: setup.source, mode, questionCount: count, shuffleQuestions, shuffleOptions, timeLimitMinutes: mode === 'exam' && timer ? Number(timer) : null, discardActive: false }) }}>
       <fieldset disabled={busy} className="form-fields">
         <legend className="sr-only">Quiz settings</legend>
         <div className="mode-switch"><button type="button" className={mode === 'practice' ? 'active' : ''} aria-pressed={mode === 'practice'} onClick={() => setMode('practice')}><Icon name="leaf" /> Practice</button><button type="button" className={mode === 'exam' ? 'active' : ''} aria-pressed={mode === 'exam'} onClick={() => setMode('exam')}><Icon name="clock" /> Exam</button></div>
         <p className="field-help mode-help">{mode === 'practice' ? 'Learn as you go. Check each answer and see an explanation.' : 'Test what you know. Answers stay hidden until you submit.'}</p>
-        <div className="form-row"><label>Questions<input aria-label="Questions" type="number" min="1" max={setup.count} required value={count} onChange={(e) => setCount(e.target.valueAsNumber)} /><span className="field-help">of {setup.count} available</span></label>{mode === 'exam' && <label>Time limit <span className="optional">optional</span><input aria-label="Time limit" type="number" min="1" max="1440" placeholder="No limit" value={timer} onChange={(e) => setTimer(e.target.value)} /><span className="field-help">minutes · continues if you close the app</span></label>}</div>
+        <div className="form-row"><label>Questions<input aria-label="Questions" type="number" min="1" max={setup.count} required readOnly={setup.source.kind === 'mix'} value={Number.isNaN(count) ? '' : count} onChange={(e) => setCount(e.target.valueAsNumber)} /><span className="field-help">{setup.source.kind === 'mix' ? 'Edit the saved mix to change its counts.' : `of ${setup.count} available`}</span></label>{mode === 'exam' && <label>Time limit <span className="optional">optional</span><input aria-label="Time limit" type="number" min="1" max="1440" placeholder="No limit" value={timer} onChange={(e) => setTimer(e.target.value)} /><span className="field-help">minutes · continues if you close the app</span></label>}</div>
         <label className="check-row"><input type="checkbox" checked={shuffleQuestions} onChange={(e) => setShuffleQuestions(e.target.checked)} /><span>Shuffle questions<small>Mix up the order for a fresh session.</small></span></label>
         <label className="check-row"><input type="checkbox" checked={shuffleOptions} onChange={(e) => setShuffleOptions(e.target.checked)} /><span>Shuffle answer choices<small>Keep the focus on understanding.</small></span></label>
       </fieldset>
